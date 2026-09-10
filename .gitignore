@@ -1,0 +1,17 @@
+# Node / Electron
+node_modules/
+bridge-agent/node_modules/
+bridge-agent/dist-electron/
+bridge-agent/release/
+
+# Flutter
+bridge_app/build/
+bridge_app/.dart_tool/
+bridge_app/.flutter-plugins
+bridge_app/.flutter-plugins-dependencies
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+*.log
