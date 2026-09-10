@@ -38,14 +38,17 @@ class ClipboardServiceClass {
     }
   }
 
+  private _lastPushedText = ''
+
   private _pushCurrentToClient(): void {
     const current = clipboard.readText()
-    if (!current || current.trim() === '') return
+    if (!current || current.trim() === '' || current === this._lastPushedText) return
 
     const eventId = randomUUID()
     this._dedupe.add(eventId)
     // Update _lastText so the next poll doesn't redundantly re-send this
     this._lastText = current
+    this._lastPushedText = current
 
     const msg: BridgeMessage<ClipboardPayload> = {
       eventId,

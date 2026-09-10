@@ -1,10 +1,81 @@
 # Bridge Protocol
 
-All messages between `bridge-agent` (Windows/Electron) and `bridge_app` (Android/Flutter) travel as a single Socket.IO event named **`bridge-message`** carrying a JSON payload described below.
+All communication between `bridge-agent` (Windows/Electron) and `bridge_app` (Android/Flutter) takes place over a local WebSocket connection (Socket.IO, port 4000).
 
 ---
 
-## Envelope Schema
+## 1. Pairing Handshake Protocol
+
+Before features (like clipboard sync) communicate, devices establish pairing via an out-of-band QR code scan.
+
+### QR Code Content
+
+The host (Electron/Windows) displays a QR code encoding a JSON payload:
+
+```json
+{
+  "ip": "192.168.0.112",
+  "port": 4000,
+  "pairingKey": "<256-bit base64 random secret>"
+}
+```
+
+### Handshake Flow
+
+1. **Client Handshake (`pair-handshake`)**:
+   Android connects to `http://<ip>:<port>` and emits:
+   ```json
+   {
+     "pairingKey": "<pairingKey from QR code>",
+     "deviceId": "<client UUID v4>",
+     "deviceName": "Android Phone"
+   }
+   ```
+2. **Host Verification**:
+   Windows verifies `pairingKey` matches the current active pairing session. If invalid, it emits `pair-error` and disconnects.
+3. **Success Confirmation (`pair-success`)**:
+   If valid, Windows marks the device as paired in its encrypted storage, closes the temporary pairing listener, sets its symmetric AES-GCM key, and responds:
+   ```json
+   {
+     "deviceId": "<client UUID v4>",
+     "status": "ok"
+   }
+   ```
+4. **Encryption Key Activation**:
+   Both sides derive/use the 256-bit secret from `pairingKey` for AES-256-GCM symmetric encryption.
+
+---
+
+## 2. Encrypted Transport Layer
+
+Once paired, **all** subsequent messages over Socket.IO event **`bridge-message`** are encrypted with AES-256-GCM:
+
+### Wire Format
+
+```
++------------------+------------------------------+--------------------+
+| 12-byte IV/Nonce |       Ciphertext bytes       | 16-byte GCM Tag    |
++------------------+------------------------------+--------------------+
+```
+
+The combined binary buffer is transmitted as a standard **Base64 string**:
+
+```typescript
+// Sending
+socket.emit('bridge-message', base64Ciphertext)
+
+// Receiving
+socket.on('bridge-message', (base64Ciphertext: string) => {
+  const plaintext = decrypt(base64Ciphertext)
+  const envelope = JSON.parse(plaintext)
+})
+```
+
+---
+
+## 3. Message Envelope Schema
+
+Inside the decrypted plaintext, messages follow the standard envelope schema:
 
 ```json
 {
@@ -26,7 +97,7 @@ All messages between `bridge-agent` (Windows/Electron) and `bridge_app` (Android
 
 ---
 
-## Message Types
+## 4. Message Types
 
 ### `clipboard`
 
@@ -70,32 +141,12 @@ Reserved for future use. Not implemented in v1.
 
 ---
 
-## Socket.IO Event Name
-
-All envelopes are sent using a single Socket.IO event: **`bridge-message`**
-
-```typescript
-socket.emit('bridge-message', envelope)
-socket.on('bridge-message', (envelope) => { ... })
-```
-
----
-
-## Deduplication
+## 5. Deduplication
 
 Both sides maintain an in-memory `EventDedupe` store (capped at 200 entries, LRU eviction). Before processing an incoming message, the receiver checks `EventDedupe.has(eventId)`. Before emitting a self-originated outgoing message, it calls `EventDedupe.add(eventId)` so the echo-back from the loopback is suppressed.
 
 ---
 
-## Adding New Message Types
+## 6. See Also
 
-1. Add the new `type` string to `MessageType` in `electron/types/protocol.ts` and to the `MessageType` enum in `lib/models/bridge_message.dart`.
-2. Define a payload interface/class.
-3. Create a `*Service` that calls `SocketService.broadcast()` / `SocketService.emit()`.
-4. Wire the service in `main.ts` / `main.dart`.
-
----
-
-## See Also
-
-- [`DECISIONS.md`](./DECISIONS.md) — Architecture decisions and known limitations.
+- [`DECISIONS.md`](./DECISIONS.md) — Architecture decisions, ADR-004 (Pairing & Encryption).

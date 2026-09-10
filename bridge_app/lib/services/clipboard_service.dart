@@ -44,12 +44,16 @@ class ClipboardService with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      SocketService.instance.ensureConnected();
       _syncOnResume();
     }
   }
 
-  /// Called once when the app first launches (already in resumed state).
-  Future<void> syncNow() => _syncOnResume();
+  /// Called once when the app first launches, or when user taps "Sync Clipboard Now".
+  Future<void> syncNow({bool force = false}) async {
+    await SocketService.instance.ensureConnected();
+    await _syncOnResume(force: force);
+  }
 
   // ── Connection-aware flush ─────────────────────────────────────────────
 
@@ -61,29 +65,35 @@ class ClipboardService with WidgetsBindingObserver {
   }
 
   Future<void> _flushPending() async {
-    // If nothing was queued while we were disconnected, skip the async read.
-    if (_pendingText.isEmpty) return;
-    // Re-read actual clipboard: value may have changed since we queued it.
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text ?? '';
+    final textToSend = _pendingText;
     _pendingText = '';
-    if (text.isEmpty || text == _lastSyncedText) return;
+    if (textToSend.isEmpty) return;
+
+    // Re-read actual clipboard: prefer fresher clipboard value if non-empty
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final currentText = data?.text ?? '';
+    final toSend = (currentText.isNotEmpty && currentText != _lastSyncedText)
+        ? currentText
+        : textToSend;
+
     debugPrint('[ClipboardService] Socket connected — flushing pending clipboard text');
-    _sendClipboard(text);
+    _sendClipboard(toSend);
   }
 
   // ── Core send logic ────────────────────────────────────────────────────
 
-  Future<void> _syncOnResume() async {
+  Future<void> _syncOnResume({bool force = false}) async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text ?? '';
 
-    if (text.isEmpty || text == _lastSyncedText) return;
+    if (text.isEmpty) return;
+    if (!force && text == _lastSyncedText) return;
 
     if (!SocketService.instance.isConnected) {
       // Save for when the socket comes up; connection listener will flush.
-      debugPrint('[ClipboardService] Not connected — queuing clipboard text for next connect');
+      debugPrint('[ClipboardService] Not connected yet — queuing clipboard text for next connect');
       _pendingText = text;
+      SocketService.instance.ensureConnected();
       return;
     }
 

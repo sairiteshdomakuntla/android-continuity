@@ -50,3 +50,22 @@ Bridge communicates this explicitly in its UI. There is no implication that back
 **Decision:** Both sides maintain a capped in-memory `EventDedupe` store. When side A receives a message from side B, it adds the `eventId` to its dedupe store *and* writes to its own clipboard with the same value. When side A's clipboard read fires on next resume (Android) or next poll tick (Windows), it detects the value matches the last-synced value and suppresses re-emission. The dedupe store provides a second layer of protection covering edge cases where timing could cause a re-read before `_lastSyncedText` is updated.
 
 ---
+
+## ADR-004 — Out-of-Band QR-Code Pairing & AES-256-GCM Symmetric Encryption
+
+**Decision:** Replace static hardcoded IP configuration with an authenticated QR-code pairing flow and end-to-end symmetric encryption using AES-256-GCM:
+- **Pairing Key**: 256-bit cryptographically secure random secret generated on Windows per pairing session.
+- **Wire Format**: All `bridge-message` events carry Base64-encoded `[12-byte random nonce][ciphertext][16-byte GCM auth tag]`.
+- **Node.js**: Built-in `node:crypto` (`aes-256-gcm`).
+- **Android / Flutter**: `cryptography` package (`AesGcm.with256bits()`).
+- **Storage**:
+  - Windows: Electron `safeStorage` (OS DPAPI encryption) storing device array keyed by `deviceId`.
+  - Android: `flutter_secure_storage` (Android Keystore backed) storing `paired_ip`, `paired_port`, `pairing_key`, and `device_id`.
+- **Transparent Feature Layer**: `SocketService` performs encryption and decryption transparently; feature services (`ClipboardService`) emit and handle standard `BridgeMessage` envelopes without cryptographic awareness.
+- **LAN Interface Selection & Routing**: Windows host uses a multi-layered detection algorithm:
+  1. OS kernel default route egress resolution via UDP socket routing table query (`getKernelEgressIp`).
+  2. Windows WMI query (`Win32_NetworkAdapterConfiguration`) to read hardware description and default IP gateways.
+  3. Excludes virtual adapters (VirtualBox, VMware, Hyper-V, WSL, Docker, VPN, Host-Only subnets like `192.168.56.x`), link-local (`169.254.x.x`), and loopback (`127.x.x.x`).
+  4. Scoring prioritizes default gateway + kernel egress match + physical Wi-Fi/Ethernet + RFC1918 private range.
+  5. UI exposes candidate selector dropdown for explicit user override if multiple LAN adapters exist.
+
