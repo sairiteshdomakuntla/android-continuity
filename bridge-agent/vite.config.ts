@@ -5,6 +5,15 @@ import pkg from './package.json'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      // Both index.html (main UI) and camera.html (floating camera window) are entry points.
+      input: {
+        index: path.join(__dirname, 'index.html'),
+        camera: path.join(__dirname, 'camera.html'),
+      },
+    },
+  },
   plugins: [
     electron({
       main: {

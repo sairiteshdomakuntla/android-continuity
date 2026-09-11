@@ -8,10 +8,14 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import 'package:uuid/uuid.dart';
+
+import '../models/bridge_message.dart';
 import 'socket_service.dart';
 import 'file_transfer_service.dart';
 import 'pairing_storage_service.dart';
 import 'event_dedupe.dart';
+import 'system_channel.dart';
 
 const String _kNotificationChannelId = 'bridge_foreground_service';
 const String _kFileNotificationChannelId = 'bridge_file_transfers';
@@ -105,6 +109,18 @@ class BackgroundService {
     final service = FlutterBackgroundService();
     service.invoke('send_files', {'paths': paths});
   }
+
+  /// Sends a camera-signal payload to Windows through the background socket.
+  static void sendCameraSignal(Map<String, dynamic> payload) {
+    final service = FlutterBackgroundService();
+    service.invoke('send_camera_signal', {'payload': payload});
+  }
+
+  /// Requests the background service to return the latest clipboard it holds.
+  static void queryLatestClipboard() {
+    final service = FlutterBackgroundService();
+    service.invoke('query_latest_clipboard');
+  }
 }
 
 @pragma('vm:entry-point')
@@ -196,23 +212,66 @@ void onStart(ServiceInstance service) async {
     },
   );
 
+  // In-memory cache of latest clipboard text received from Windows
+  String? latestClipboardText;
+  String? latestClipboardEventId;
+  String? latestClipboardTimestamp;
+
   // Incoming clipboard from Windows -> update Android clipboard & notify UI isolate
   SocketService.instance.onClipboardMessage((msg) async {
     final text = msg.payload['text'] as String?;
-    if (text == null || text.isEmpty) return;
+    final preview = text != null && text.length > 40 ? '${text.substring(0, 40)}…' : (text ?? '');
+    debugPrint('[BackgroundService] [RECV] Received clipboard message: eventId=${msg.eventId}, timestamp=${msg.timestamp}, len=${text?.length ?? 0}');
 
-    dedupe.add(msg.eventId);
-    debugPrint('[BackgroundService] Incoming clipboard from Windows: "${text.length > 40 ? '${text.substring(0, 40)}...' : text}"');
-
-    try {
-      await Clipboard.setData(ClipboardData(text: text));
-    } catch (e) {
-      debugPrint('[BackgroundService] Failed to set system clipboard: $e');
+    if (text == null || text.isEmpty) {
+      debugPrint('[BackgroundService] [RECV] Empty clipboard payload — skipping');
+      return;
     }
 
+    if (dedupe.has(msg.eventId)) {
+      debugPrint('[BackgroundService] [DEDUPE] Suppressed duplicate clipboard eventId: ${msg.eventId}');
+      return;
+    }
+
+    dedupe.add(msg.eventId);
+    debugPrint('[BackgroundService] [DEDUPE] Passed dedupe for eventId: ${msg.eventId}');
+
+    latestClipboardText = text;
+    latestClipboardEventId = msg.eventId;
+    latestClipboardTimestamp = msg.timestamp;
+
+    // 1. Native write directly via Kotlin foreground service / ClipboardManager.setPrimaryClip()
+    try {
+      final nativeSuccess = await SystemChannel.setClipboard(text);
+      debugPrint('[BackgroundService] [NATIVE WRITE] setClipboard result: $nativeSuccess for "$preview"');
+    } catch (e) {
+      debugPrint('[BackgroundService] [NATIVE WRITE] setClipboard EXCEPTION: $e');
+    }
+
+    // 2. Also try standard Flutter Clipboard.setData for fallback/logging
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+      debugPrint('[BackgroundService] [FLUTTER WRITE] Clipboard.setData succeeded');
+    } catch (e) {
+      debugPrint('[BackgroundService] [FLUTTER WRITE] Clipboard.setData failed (expected in background isolate): $e');
+    }
+
+    // 3. Forward to UI isolate with origin and timestamp
     service.invoke('clipboard_received', {
       'eventId': msg.eventId,
       'text': text,
+      'timestamp': msg.timestamp,
+      'origin': msg.origin.name,
+    });
+  });
+
+  // Incoming camera-signal from Windows -> forward to UI isolate
+  SocketService.instance.onMessage(MessageType.cameraSignal, (msg) {
+    final event = msg.payload['event'] as String? ?? 'unknown';
+    debugPrint('[BackgroundService] Incoming camera-signal [$event] from Windows -> forwarding to UI');
+    service.invoke('camera_signal_received', {
+      'eventId': msg.eventId,
+      'payload': msg.payload,
     });
   });
 
@@ -223,6 +282,31 @@ void onStart(ServiceInstance service) async {
     if (text != null && text.isNotEmpty) {
       SocketService.instance.emitClipboardMessage(text);
     }
+  });
+
+  // Cross-isolate UI command: Send camera-signal to Windows
+  service.on('send_camera_signal').listen((data) async {
+    if (data == null) return;
+    final rawPayload = data['payload'];
+    if (rawPayload == null) return;
+    final payload = Map<String, dynamic>.from(rawPayload as Map);
+
+    final event = payload['event'] as String? ?? 'unknown';
+    if (!SocketService.instance.isConnected) {
+      debugPrint('[BackgroundService] WARNING: Cannot send camera-signal [$event] — background socket not connected!');
+      return;
+    }
+
+    final msg = BridgeMessage(
+      eventId: const Uuid().v4(),
+      type: MessageType.cameraSignal,
+      origin: Origin.android,
+      timestamp: DateTime.now().toUtc().toIso8601String(),
+      payload: payload,
+    );
+
+    debugPrint('[BackgroundService] [SEND] Outgoing camera-signal [$event] sent over connected socket (socket id: ${SocketService.instance.rawSocket?.id})');
+    await SocketService.instance.emit(msg);
   });
 
   // Cross-isolate UI command: Send files to Windows
@@ -263,6 +347,16 @@ void onStart(ServiceInstance service) async {
     service.invoke('connection_status', {
       'connected': SocketService.instance.isConnected,
       'url': SocketService.instance.currentUrl,
+    });
+  });
+
+  // Cross-isolate UI command: Query latest received clipboard
+  service.on('query_latest_clipboard').listen((_) {
+    debugPrint('[BackgroundService] query_latest_clipboard received -> returning: "${latestClipboardText?.isNotEmpty == true ? (latestClipboardText!.length > 30 ? '${latestClipboardText!.substring(0, 30)}…' : latestClipboardText) : 'null'}"');
+    service.invoke('latest_clipboard_response', {
+      'text': latestClipboardText,
+      'eventId': latestClipboardEventId,
+      'timestamp': latestClipboardTimestamp,
     });
   });
 }

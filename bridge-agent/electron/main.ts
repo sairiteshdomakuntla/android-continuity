@@ -6,8 +6,19 @@ import { ClipboardService } from './services/ClipboardService.js'
 import { DeviceStorageService, PairedDevice } from './services/DeviceStorageService.js'
 import { PairingService, LanInterfaceCandidate } from './services/PairingService.js'
 import { FileTransferService } from './services/FileTransferService.js'
+import { CameraSignalService } from './services/CameraSignalService.js'
+import { ObsManagerService } from './services/ObsManagerService.js'
+import { ClipboardHistoryService } from './services/ClipboardHistoryService.js'
+
+export { ObsManagerService, CameraSignalService }
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+app.name = 'Bridge Agent'
+try {
+  app.setPath('userData', path.join(app.getPath('appData'), 'Bridge Agent'))
+} catch {}
 
 process.env.APP_ROOT = path.join(__dirname, '..')
 
@@ -16,6 +27,7 @@ export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
+
 
 let win: BrowserWindow | null = null
 let currentQrDataUrl: string | null = null
@@ -134,7 +146,27 @@ ipcMain.handle('unpair-all', async () => {
   return pairingInfo
 })
 
+ipcMain.handle('get-clipboard-history', async () => {
+  return ClipboardHistoryService.getItems()
+})
+
+ipcMain.handle('copy-history-item', async (_event, text: string) => {
+  ClipboardService.copyLocally(text)
+  return { success: true }
+})
+
+ipcMain.handle('clear-clipboard-history', async () => {
+  ClipboardHistoryService.clear()
+  return { success: true }
+})
+
 app.whenReady().then(async () => {
+  // Initialize Clipboard History
+  ClipboardHistoryService.init()
+  ClipboardHistoryService.onUpdate((items) => {
+    win?.webContents.send('clipboard-history-updated', items)
+  })
+
   // 1. Start Socket.IO server
   const io = SocketService.start()
 
@@ -169,7 +201,14 @@ app.whenReady().then(async () => {
     win?.webContents.send('file-progress', progress)
   })
 
-  // 6. Open window
+  // 6. Start Camera Signal Service
+  CameraSignalService.start(
+    () => win,
+    RENDERER_DIST,
+    VITE_DEV_SERVER_URL ?? '',
+  )
+
+  // 7. Open window
   createWindow()
 })
 

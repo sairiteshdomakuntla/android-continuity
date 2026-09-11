@@ -16,7 +16,15 @@ class SocketServiceClass {
   private _connectHandlers: ConnectHandler[] = []
 
   start(): Server {
-    const httpServer = http.createServer()
+    const httpServer = http.createServer((req, res) => {
+      if (req.url === '/obs-camera' || req.url === '/obs-camera.html') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.end(getObsCameraHtml())
+        return
+      }
+      res.writeHead(404)
+      res.end('Not found')
+    })
     this._io = new Server(httpServer, {
       cors: { origin: '*', methods: ['GET', 'POST'] },
     })
@@ -28,6 +36,23 @@ class SocketServiceClass {
       if (this._encKey) {
         this._connectHandlers.forEach((h) => h())
       }
+
+      // ── Local OBS Browser Source Receiver ─────────────────────────────────
+      socket.on('obs-camera-ready', () => {
+        console.log('[SocketService] OBS Camera receiver connected and ready')
+      })
+
+      socket.on('obs-camera-signal-out', (payload: any) => {
+        console.log(`[SocketService] OBS Camera sending signal to Android: ${payload?.event}`)
+        const { randomUUID } = require('node:crypto')
+        this.broadcast({
+          eventId: randomUUID(),
+          type: 'camera-signal',
+          origin: 'windows',
+          timestamp: new Date().toISOString(),
+          payload,
+        })
+      })
 
       socket.on('bridge-message', (raw: unknown) => {
         let msg: BridgeMessage
@@ -52,6 +77,12 @@ class SocketServiceClass {
         }
 
         console.log(`[SocketService] [RECV] [${msg.type}] ${msg.eventId} from ${msg.origin}`)
+
+        // Relay camera signals to local OBS Browser Source receiver
+        if (msg.type === 'camera-signal') {
+          this._io?.emit('obs-camera-signal-in', msg.payload)
+        }
+
         const handlers = this._handlers.get(msg.type) ?? []
         handlers.forEach((h) => h(msg))
       })
@@ -129,3 +160,104 @@ class SocketServiceClass {
 }
 
 export const SocketService = new SocketServiceClass()
+
+function getObsCameraHtml(): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Bridge OBS Camera Receiver</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    #video {
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      display: block;
+      background: #000;
+    }
+  </style>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+  <video id="video" autoplay playsinline muted></video>
+  <script>
+    const video = document.getElementById('video');
+    const socket = io();
+    let pc = null;
+
+    const ICE_CONFIG = {
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    };
+
+    function createPeerConnection() {
+      if (pc) {
+        pc.close();
+        pc = null;
+      }
+      const conn = new RTCPeerConnection(ICE_CONFIG);
+      pc = conn;
+
+      conn.onicecandidate = (evt) => {
+        if (evt.candidate) {
+          socket.emit('obs-camera-signal-out', {
+            event: 'ice-candidate',
+            candidate: evt.candidate.toJSON(),
+          });
+        }
+      };
+
+      conn.ontrack = (evt) => {
+        if (evt.streams && evt.streams[0]) {
+          video.srcObject = evt.streams[0];
+          video.play().catch((e) => console.warn('video.play error:', e));
+        }
+      };
+
+      return conn;
+    }
+
+    async function handleOffer(sdp) {
+      console.log('[OBS-Cam] Handling offer from Android...');
+      const conn = createPeerConnection();
+      await conn.setRemoteDescription({ type: 'offer', sdp });
+      const answer = await conn.createAnswer();
+      await conn.setLocalDescription(answer);
+      socket.emit('obs-camera-signal-out', {
+        event: 'answer',
+        sdp: answer.sdp,
+      });
+      console.log('[OBS-Cam] Answer sent to Android');
+    }
+
+    async function handleIceCandidate(candidate) {
+      if (!pc || !candidate) return;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.warn('[OBS-Cam] addIceCandidate error:', e);
+      }
+    }
+
+    socket.on('connect', () => {
+      console.log('[OBS-Cam] Connected to Bridge local socket');
+      socket.emit('obs-camera-ready');
+    });
+
+    socket.on('obs-camera-signal-in', async (payload) => {
+      console.log('[OBS-Cam] Received signal:', payload && payload.event);
+      if (!payload) return;
+      if (payload.event === 'offer' && payload.sdp) {
+        await handleOffer(payload.sdp);
+      } else if (payload.event === 'ice-candidate' && payload.candidate) {
+        await handleIceCandidate(payload.candidate);
+      } else if (payload.event === 'stop-camera') {
+        if (pc) { pc.close(); pc = null; }
+        video.srcObject = null;
+      }
+    });
+  </script>
+</body>
+</html>`
+}

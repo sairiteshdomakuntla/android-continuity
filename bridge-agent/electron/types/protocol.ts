@@ -13,6 +13,13 @@ export interface ClipboardPayload {
   text: string
 }
 
+export interface ClipboardHistoryItem {
+  id: string
+  text: string
+  timestamp: string
+  origin: Origin
+}
+
 // ── File transfer ─────────────────────────────────────────────────────────────
 
 export interface FileMetaPayload {
@@ -40,3 +47,18 @@ export interface FileCompletePayload {
 }
 
 export type FilePayload = FileMetaPayload | FileChunkPayload | FileCompletePayload
+
+// ── Camera signaling ──────────────────────────────────────────────────────────
+
+export interface CameraStartPayload   { event: 'start-camera' }
+export interface CameraStopPayload    { event: 'stop-camera' }
+export interface CameraOfferPayload   { event: 'offer';         sdp: string }
+export interface CameraAnswerPayload  { event: 'answer';        sdp: string }
+export interface CameraIcePayload     { event: 'ice-candidate'; candidate: RTCIceCandidateInit | null }
+
+export type CameraSignalPayload =
+  | CameraStartPayload
+  | CameraStopPayload
+  | CameraOfferPayload
+  | CameraAnswerPayload
+  | CameraIcePayload

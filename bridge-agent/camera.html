@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bridge — Phone Camera</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      :root {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #f1f5f9;
+        background: #0a0a0f;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        overflow: hidden;
+        background: #0a0a0f;
+        user-select: none;
+      }
+
+      /* ── Draggable top bar ─────────────────────────────────────────── */
+      .top-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 10px;
+        background: rgba(15, 23, 42, 0.95);
+        border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+        -webkit-app-region: drag;   /* makes the bar draggable */
+        flex-shrink: 0;
+        gap: 8px;
+      }
+
+      .top-bar-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        -webkit-app-region: drag;
+      }
+
+      .cam-icon {
+        font-size: 14px;
+        line-height: 1;
+      }
+
+      .top-bar-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #94a3b8;
+        letter-spacing: 0.3px;
+        -webkit-app-region: drag;
+      }
+
+      /* Status dot */
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #ef4444;
+        flex-shrink: 0;
+        transition: background 0.3s, box-shadow 0.3s;
+      }
+      .status-dot.live {
+        background: #22c55e;
+        box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
+        animation: pulse-dot 2s infinite;
+      }
+      @keyframes pulse-dot {
+        0%, 100% { box-shadow: 0 0 4px rgba(34, 197, 94, 0.5); }
+        50%       { box-shadow: 0 0 10px rgba(34, 197, 94, 0.9); }
+      }
+
+      .status-text {
+        font-size: 11px;
+        color: #64748b;
+        -webkit-app-region: drag;
+        transition: color 0.3s;
+      }
+      .status-text.live { color: #22c55e; }
+
+      .top-bar-right {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        -webkit-app-region: no-drag;
+      }
+
+      .btn-stop {
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #f87171;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 3px 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+        -webkit-app-region: no-drag;
+      }
+      .btn-stop:hover {
+        background: rgba(239, 68, 68, 0.22);
+        border-color: rgba(239, 68, 68, 0.5);
+      }
+
+      .btn-close {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.06);
+        border: none;
+        color: #94a3b8;
+        font-size: 14px;
+        line-height: 22px;
+        text-align: center;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+        -webkit-app-region: no-drag;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .btn-close:hover {
+        background: rgba(239, 68, 68, 0.2);
+        color: #f87171;
+      }
+
+      /* ── Video area ────────────────────────────────────────────────── */
+      .video-area {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0a0a0f;
+        position: relative;
+        overflow: hidden;
+      }
+
+      #cam-video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: none;   /* hidden until stream arrives */
+        background: #000;
+      }
+
+      #cam-video.active {
+        display: block;
+      }
+
+      /* Waiting state overlay */
+      .waiting-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: #0a0a0f;
+        transition: opacity 0.4s;
+      }
+      .waiting-overlay.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .waiting-spinner {
+        width: 36px;
+        height: 36px;
+        border: 3px solid rgba(99, 102, 241, 0.2);
+        border-top-color: #6366f1;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      .waiting-label {
+        font-size: 13px;
+        color: #64748b;
+        text-align: center;
+        line-height: 1.5;
+      }
+
+      /* Ended state */
+      .ended-overlay {
+        position: absolute;
+        inset: 0;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        background: #0a0a0f;
+      }
+      .ended-overlay.visible {
+        display: flex;
+      }
+      .ended-icon { font-size: 36px; }
+      .ended-label { font-size: 13px; color: #64748b; }
+
+      /* LIVE badge */
+      .live-badge {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        background: rgba(239, 68, 68, 0.85);
+        color: white;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        padding: 2px 7px;
+        border-radius: 4px;
+        display: none;
+      }
+      .live-badge.visible { display: block; }
+    </style>
+  </head>
+  <body>
+    <!-- ── Top bar ─────────────────────────────────────────────────── -->
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <span class="cam-icon">📷</span>
+        <span class="top-bar-title">Bridge Camera</span>
+        <div class="status-dot" id="status-dot"></div>
+        <span class="status-text" id="status-text">Waiting for Android…</span>
+      </div>
+      <div class="top-bar-right">
+        <button class="btn-stop" id="btn-stop">⏹ Stop</button>
+        <button class="btn-close" id="btn-close" title="Close">✕</button>
+      </div>
+    </div>
+
+    <!-- ── Video area ──────────────────────────────────────────────── -->
+    <div class="video-area">
+      <video id="cam-video" autoplay playsinline muted></video>
+
+      <div class="waiting-overlay" id="waiting-overlay">
+        <div class="waiting-spinner"></div>
+        <div class="waiting-label">Waiting for Android camera…<br><span style="font-size:11px;color:#475569;">Keep Bridge open on your phone</span></div>
+      </div>
+
+      <div class="ended-overlay" id="ended-overlay">
+        <div class="ended-icon">📵</div>
+        <div class="ended-label">Stream ended</div>
+      </div>
+
+      <div class="live-badge" id="live-badge">● LIVE</div>
+    </div>
+
+    <script type="module" src="/src/camera.ts"></script>
+  </body>
+</html>
+

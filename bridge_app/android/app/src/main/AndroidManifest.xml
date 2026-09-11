@@ -2,6 +2,15 @@
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!--
+      RECORD_AUDIO and MODIFY_AUDIO_SETTINGS are required by flutter_webrtc's internal
+      engine initialization on some Android versions. We do not use an audio track
+      (getUserMedia is called with audio: false), but failing to grant these at runtime
+      can cause silent WebRTC init failures on certain devices. Users will see a clear
+      explanation in the permission dialog before streaming starts.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

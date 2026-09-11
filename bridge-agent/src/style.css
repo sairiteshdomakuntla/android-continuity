@@ -252,6 +252,7 @@ button.danger:hover {
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
   padding: 12px 14px;
+  width: 100%;
 }
 
 .file-progress-name {
@@ -285,3 +286,217 @@ button.danger:hover {
   margin-top: 6px;
   text-align: right;
 }
+
+/* ── Camera Setup Progress & Error Banner ────────────────────────────── */
+.camera-progress-container {
+  margin: 10px 0 4px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 12px;
+  padding: 12px 14px;
+  width: 100%;
+  text-align: left;
+}
+
+.camera-progress-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a5b4fc;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.camera-progress-bar-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.camera-progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #6366f1, #38bdf8);
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+
+.camera-progress-message {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 6px;
+}
+
+.camera-error-banner {
+  margin: 10px 0 4px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 10px;
+  padding: 10px 14px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  text-align: left;
+  animation: fadeIn 0.3s ease;
+}
+
+.camera-error-text {
+  font-size: 12px;
+  color: #fca5a5;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.camera-error-close {
+  background: transparent;
+  border: none;
+  color: #f87171;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.camera-error-close:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Clipboard History Card ────────────────────────────────── */
+.history-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.history-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-count {
+  font-size: 0.72rem;
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-weight: 600;
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.history-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.history-list::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+.history-item {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  text-align: left;
+}
+
+.history-item:hover {
+  border-color: #6366f1;
+  background: #162032;
+  transform: translateY(-1px);
+}
+
+.history-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 0.72rem;
+}
+
+.history-origin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.history-origin.android {
+  color: #34d399;
+}
+
+.history-origin.windows {
+  color: #38bdf8;
+}
+
+.history-time {
+  color: #64748b;
+}
+
+.history-text {
+  font-size: 0.82rem;
+  color: #cbd5e1;
+  line-height: 1.4;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-family: inherit;
+  white-space: pre-wrap;
+}
+
+.history-empty {
+  text-align: center;
+  padding: 20px 0;
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.history-copied-badge {
+  color: #34d399;
+  font-size: 0.72rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+

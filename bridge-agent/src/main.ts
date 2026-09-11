@@ -32,6 +32,13 @@ interface StatusResponse {
   } | null
 }
 
+interface ClipboardHistoryItem {
+  id: string
+  text: string
+  timestamp: string
+  origin: 'android' | 'windows'
+}
+
 interface FileSendProgress {
   transferId: string
   fileName: string
@@ -42,8 +49,36 @@ interface FileSendProgress {
 }
 
 const appEl = document.querySelector<HTMLDivElement>('#app')!
+let clipboardHistory: ClipboardHistoryItem[] = []
+let lastStatus: StatusResponse | null = null
+
+function getRelativeTime(isoString: string): string {
+  try {
+    const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)
+    if (diff < 5) return 'just now'
+    if (diff < 60) return `${diff}s ago`
+    const mins = Math.floor(diff / 60)
+    if (mins < 60) return `${mins}m ago`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  } catch {
+    return 'recently'
+  }
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
 
 function render(state: StatusResponse) {
+  lastStatus = state
   const hasDevices = state.devices.length > 0
   const isPairing = state.isPairingActive && state.currentPairing
   const pairing = state.currentPairing
@@ -115,6 +150,17 @@ function render(state: StatusResponse) {
         <p class="instruction">
           Encrypted tunnel established. Clipboard synchronization is active.
         </p>
+        <div id="camera-progress-container" class="camera-progress-container" style="display:none">
+          <div class="camera-progress-title">📷 Setting up camera support…</div>
+          <div class="camera-progress-bar-track">
+            <div class="camera-progress-bar-fill" id="camera-progress-bar"></div>
+          </div>
+          <div class="camera-progress-message" id="camera-progress-message"></div>
+        </div>
+        <div id="camera-error-banner" class="camera-error-banner" style="display:none">
+          <span class="camera-error-text" id="camera-error-text">Camera setup failed — try restarting Bridge</span>
+          <button class="camera-error-close" id="camera-error-close">✕</button>
+        </div>
         <div id="file-progress-container" class="file-progress-container" style="display:none">
           <div class="file-progress-name" id="file-progress-name"></div>
           <div class="file-progress-bar-track">
@@ -123,6 +169,7 @@ function render(state: StatusResponse) {
           <div class="file-progress-label" id="file-progress-label"></div>
         </div>
         <div class="actions">
+          <button id="btn-camera" class="secondary">📷 Phone Camera</button>
           <button id="btn-send-file" class="secondary">📤 Send File</button>
           <button id="btn-pair-new" class="secondary">Pair New Device</button>
           <button id="btn-unpair" class="danger">Unpair</button>
@@ -142,7 +189,57 @@ function render(state: StatusResponse) {
     `
         : ''
     }
+
+    <!-- ── Clipboard History Card ────────────────────────────────────── -->
+    <div class="history-card">
+      <div class="history-header">
+        <div class="history-title">
+          <span>📋 Clipboard History</span>
+          <span class="history-count">${clipboardHistory.length}/20</span>
+        </div>
+      </div>
+      <div class="history-list" id="history-list">
+        ${
+          clipboardHistory.length === 0
+            ? '<div class="history-empty">No clipboard items recorded yet.<br>Copy text on Windows or Android to sync.</div>'
+            : clipboardHistory
+                .map(
+                  (item) => `
+            <div class="history-item" data-id="${item.id}" title="Click to copy locally">
+              <div class="history-item-top">
+                <span class="history-origin ${item.origin}">
+                  ${item.origin === 'android' ? '📱 Android' : '💻 Windows'}
+                </span>
+                <div class="history-time-wrap">
+                  <span class="history-time">${getRelativeTime(item.timestamp)}</span>
+                </div>
+              </div>
+              <div class="history-text">${escapeHtml(item.text)}</div>
+            </div>
+          `
+                )
+                .join('')
+        }
+      </div>
+    </div>
   `
+
+  // Attach handlers
+  document.querySelector('#camera-error-close')?.addEventListener('click', () => {
+    const errorBanner = document.getElementById('camera-error-banner')
+    if (errorBanner) errorBanner.style.display = 'none'
+  })
+
+  document.querySelector('#btn-camera')?.addEventListener('click', async () => {
+    const errorBanner = document.getElementById('camera-error-banner')
+    if (errorBanner) errorBanner.style.display = 'none'
+
+    window.ipcRenderer.send('camera-signal-send', { event: 'start-camera' })
+    const res = await window.ipcRenderer.invoke('open-camera-window')
+    if (res && res.success === false && res.error) {
+      showCameraError(res.error)
+    }
+  })
 
   document.querySelector('#btn-send-file')?.addEventListener('click', async () => {
     await window.ipcRenderer.invoke('send-file')
@@ -170,11 +267,49 @@ function render(state: StatusResponse) {
     await window.ipcRenderer.invoke('start-pairing')
     refresh()
   })
+
+  // History item click to copy locally
+  document.querySelectorAll<HTMLDivElement>('.history-item').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const id = el.getAttribute('data-id')
+      const item = clipboardHistory.find((h) => h.id === id)
+      if (!item) return
+
+      try {
+        await window.ipcRenderer.invoke('copy-history-item', item.text)
+        const timeWrap = el.querySelector('.history-time-wrap')
+        if (timeWrap) {
+          const prevHtml = timeWrap.innerHTML
+          timeWrap.innerHTML = '<span class="history-copied-badge">Copied! ✓</span>'
+          setTimeout(() => {
+            timeWrap.innerHTML = prevHtml
+          }, 1500)
+        }
+      } catch (err) {
+        console.error('Failed to copy history item:', err)
+      }
+    })
+  })
+}
+
+function showCameraError(msg: string) {
+  const banner = document.getElementById('camera-error-banner')
+  const text = document.getElementById('camera-error-text')
+  if (banner && text) {
+    text.textContent = msg
+    banner.style.display = 'flex'
+  }
 }
 
 async function refresh() {
   try {
     const status = (await window.ipcRenderer.invoke('get-status')) as StatusResponse
+    try {
+      const history = (await window.ipcRenderer.invoke('get-clipboard-history')) as ClipboardHistoryItem[]
+      if (Array.isArray(history)) {
+        clipboardHistory = history
+      }
+    } catch {}
     render(status)
   } catch (e) {
     console.error('Failed to get status:', e)
@@ -188,6 +323,44 @@ window.ipcRenderer.on('device-paired', () => {
 
 window.ipcRenderer.on('pairing-state-changed', () => {
   refresh()
+})
+
+window.ipcRenderer.on('clipboard-history-updated', (_event, items: ClipboardHistoryItem[]) => {
+  if (Array.isArray(items)) {
+    clipboardHistory = items
+    if (lastStatus) {
+      render(lastStatus)
+    }
+  }
+})
+
+window.ipcRenderer.on('camera-setup-progress', (_event, progress: { stage: string; percent: number; message: string }) => {
+  const container = document.getElementById('camera-progress-container')
+  const barEl = document.getElementById('camera-progress-bar')
+  const msgEl = document.getElementById('camera-progress-message')
+  if (!container || !barEl || !msgEl) return
+
+  if (progress.stage === 'ready' || progress.stage === 'error') {
+    if (progress.stage === 'ready') {
+      barEl.style.width = '100%'
+      msgEl.textContent = 'Camera ready ✓'
+      setTimeout(() => {
+        container.style.display = 'none'
+      }, 1500)
+    } else {
+      container.style.display = 'none'
+      showCameraError(progress.message || 'Camera setup failed — try restarting Bridge')
+    }
+    return
+  }
+
+  container.style.display = 'block'
+  barEl.style.width = `${Math.max(5, Math.min(100, progress.percent))}%`
+  msgEl.textContent = progress.message
+})
+
+window.ipcRenderer.on('camera-error', (_event, data: { error?: string }) => {
+  showCameraError(data?.error || 'Camera setup failed — try restarting Bridge')
 })
 
 window.ipcRenderer.on('file-progress', (_event, progress: FileSendProgress) => {

@@ -53,4 +53,17 @@ class SystemChannel {
       return true;
     }
   }
+
+  /// Sets native Android clipboard content directly via ClipboardManager.setPrimaryClip().
+  /// Safe to invoke from headless background service isolates without an active Activity.
+  static Future<bool> setClipboard(String text) async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final res = await _channel.invokeMethod<bool>('setClipboard', {'text': text});
+      return res ?? false;
+    } catch (e) {
+      debugPrint('[SystemChannel] setClipboard error: $e');
+      return false;
+    }
+  }
 }

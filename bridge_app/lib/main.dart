@@ -3,12 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'services/socket_service.dart';
 import 'services/clipboard_service.dart';
+import 'services/camera_service.dart';
 import 'services/file_transfer_service.dart';
 import 'services/pairing_storage_service.dart';
 import 'services/background_service.dart';
 import 'services/system_channel.dart';
+import 'services/clipboard_history_service.dart';
 import 'screens/scan_pair_screen.dart';
 import 'screens/share_progress_screen.dart';
+import 'screens/camera_screen.dart';
+
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +33,25 @@ void main() async {
   SocketService.instance.initUiProxy();
   ClipboardService.instance.init();
   FileTransferService.init(isBackgroundService: false);
+  CameraService.instance.init();
+
+  CameraService.instance.onStartCameraRequested = () {
+    if (CameraService.instance.isStreaming.value) return;
+    final nav = rootNavigatorKey.currentState;
+    if (nav == null) return;
+    final url = SocketService.instance.currentUrl ?? '';
+    final pcName = url.isNotEmpty
+        ? url.replaceFirst(RegExp(r'https?://'), '').split(':').first
+        : 'Windows PC';
+    debugPrint('[main] Remote start-camera received — pushing CameraScreen(pcName: $pcName)');
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) => CameraScreen(pcName: pcName),
+      ),
+    ).then((_) {
+      debugPrint('[main] Returned from remote-launched CameraScreen');
+    });
+  };
 
   runApp(BridgeApp(isPaired: pairing != null));
 }
@@ -82,6 +106,7 @@ class BridgeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: rootNavigatorKey,
       title: 'Bridge',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -104,32 +129,16 @@ class BridgeHome extends StatefulWidget {
   State<BridgeHome> createState() => _BridgeHomeState();
 }
 
-class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
+class _BridgeHomeState extends State<BridgeHome> {
   static bool _hasPromptedBattery = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _checkPermissionsAndBattery();
       ClipboardService.instance.syncNow();
     });
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      debugPrint('[BridgeHome] App resumed, syncing clipboard...');
-      ClipboardService.instance.syncNow();
-    }
   }
 
   Future<void> _checkPermissionsAndBattery() async {
@@ -232,6 +241,7 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('[BridgeHome] build() executed — rendering home UI');
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -366,8 +376,41 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                 color: colorScheme.secondaryContainer,
                 onColor: colorScheme.onSecondaryContainer,
               ),
+              const SizedBox(height: 8),
 
-              const Spacer(),
+              // ── Use as Webcam button ─────────────────────────────────────
+              ValueListenableBuilder<bool>(
+                valueListenable: SocketService.instance.connected,
+                builder: (context, isConnected, _) {
+                  return SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: isConnected
+                          ? () async {
+                              final url = SocketService.instance.currentUrl ?? '';
+                              // Extract host portion for display
+                              final pcName = url.isNotEmpty
+                                  ? url.replaceFirst(RegExp(r'https?://'), '').split(':').first
+                                  : 'Windows PC';
+                              debugPrint('[BridgeHome] Tapped "Use as Webcam" — pushing CameraScreen(pcName: $pcName)');
+                              await Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => CameraScreen(pcName: pcName),
+                                ),
+                              );
+                              debugPrint('[BridgeHome] Returned from CameraScreen route to BridgeHome');
+                            }
+                          : null,
+                      icon: const Icon(Icons.videocam_rounded),
+                      label: const Text('Use as Webcam'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
 
               // ── Incoming file receive progress ──────────────────────────
               ValueListenableBuilder<FileReceiveProgress?>(
@@ -414,15 +457,25 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                 width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: () async {
-                    await ClipboardService.instance.syncNow(force: true);
+                    final result = await ClipboardService.instance.syncNow(force: true);
                     if (context.mounted) {
+                      String msg;
+                      switch (result) {
+                        case SyncDirectionResult.pulledFromWindows:
+                          msg = 'Pulled latest clipboard from Windows!';
+                          break;
+                        case SyncDirectionResult.sentToWindows:
+                          msg = 'Sent clipboard to Windows!';
+                          break;
+                        case SyncDirectionResult.upToDate:
+                          msg = SocketService.instance.isConnected
+                              ? 'Clipboard is up to date with Windows'
+                              : 'Clipboard synchronized via Background Service';
+                          break;
+                      }
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text(
-                            SocketService.instance.isConnected
-                                ? 'Clipboard synchronized with Windows!'
-                                : 'Syncing clipboard via Background Service...',
-                          ),
+                          content: Text(msg),
                           duration: const Duration(seconds: 2),
                         ),
                       );
@@ -435,6 +488,10 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+
+              // ── Clipboard History ────────────────────────────────────────
+              const _ClipboardHistoryCard(),
             ],
           ),
         ),
@@ -444,6 +501,170 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
 }
 
 // ── Widgets ─────────────────────────────────────────────────────────────────
+
+/// Displays the last 20 clipboard history entries with relative timestamps and local copy-back.
+class _ClipboardHistoryCard extends StatelessWidget {
+  const _ClipboardHistoryCard();
+
+  String _formatRelativeTime(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 5) return 'just now';
+    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return ValueListenableBuilder<List<ClipboardHistoryItem>>(
+      valueListenable: ClipboardHistoryService.instance.items,
+      builder: (context, history, _) {
+        return Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest.withAlpha(50),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colorScheme.outlineVariant.withAlpha(70)),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.history_rounded, size: 18, color: colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Clipboard History',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary.withAlpha(25),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${history.length}/20',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (history.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: Text(
+                      'No history yet. Copy on Windows or Android to sync.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colorScheme.onSurfaceVariant.withAlpha(150),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: history.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final item = history[index];
+                    final isWindows = item.origin == 'windows';
+
+                    return Material(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(10),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () async {
+                          await ClipboardHistoryService.instance.copyLocally(item.text);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Copied to clipboard! Ready to paste locally.'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: colorScheme.outlineVariant.withAlpha(60)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    isWindows ? Icons.computer_rounded : Icons.phone_android_rounded,
+                                    size: 13,
+                                    color: isWindows ? const Color(0xFF38BDF8) : const Color(0xFF34D399),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    isWindows ? 'Windows' : 'Android',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: isWindows ? const Color(0xFF38BDF8) : const Color(0xFF34D399),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    _formatRelativeTime(item.timestamp),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: colorScheme.onSurfaceVariant.withAlpha(140),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Icon(Icons.copy_rounded, size: 12, color: colorScheme.primary.withAlpha(160)),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                item.text,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  height: 1.3,
+                                  color: colorScheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
 
 /// Shows incoming file receive progress (Windows → Android) in BridgeHome.
 class _FileReceiveCard extends StatelessWidget {

@@ -267,6 +267,14 @@ class SocketService {
   }
 
   Future<void> emit(BridgeMessage msg) async {
+    if (_isUiProxy) {
+      if (msg.type == MessageType.cameraSignal) {
+        debugPrint('[SocketService] UI Proxy: routing camera-signal [${msg.payload['event']}] to BackgroundService');
+        BackgroundService.sendCameraSignal(Map<String, dynamic>.from(msg.payload));
+        return;
+      }
+    }
+
     if (_socket == null || !_socket!.connected) {
       debugPrint('[SocketService] emit() called but not connected — message dropped');
       return;

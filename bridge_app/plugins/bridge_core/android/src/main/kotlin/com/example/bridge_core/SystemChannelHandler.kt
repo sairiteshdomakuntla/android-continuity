@@ -2,11 +2,15 @@ package com.example.bridge_core
 
 import android.Manifest
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
@@ -85,6 +89,28 @@ class SystemChannelHandler(
                     }
                 } else {
                     result.success(true)
+                }
+            }
+
+            "setClipboard" -> {
+                val text = call.argument<String>("text") ?: ""
+                try {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    if (clipboard != null) {
+                        Handler(Looper.getMainLooper()).post {
+                            try {
+                                val clip = ClipData.newPlainText("Bridge", text)
+                                clipboard.setPrimaryClip(clip)
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("CLIPBOARD_WRITE_ERROR", e.message, null)
+                            }
+                        }
+                    } else {
+                        result.error("NO_CLIPBOARD_SERVICE", "ClipboardManager unavailable", null)
+                    }
+                } catch (e: Exception) {
+                    result.error("CLIPBOARD_EXCEPTION", e.message, null)
                 }
             }
 
