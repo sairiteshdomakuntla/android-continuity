@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../services/pairing_storage_service.dart';
 import '../services/socket_service.dart';
+import '../services/background_service.dart';
 import '../main.dart';
 
 class ScanPairScreen extends StatefulWidget {
@@ -97,6 +98,10 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
       pairingKey: pairingKey,
       deviceId: deviceId,
     );
+
+    // Start background service to maintain persistent socket
+    await BackgroundService.start();
+    BackgroundService.restartSocket();
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

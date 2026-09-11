@@ -1,31 +1,33 @@
-import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'services/socket_service.dart';
 import 'services/clipboard_service.dart';
 import 'services/file_transfer_service.dart';
 import 'services/pairing_storage_service.dart';
+import 'services/background_service.dart';
+import 'services/system_channel.dart';
 import 'screens/scan_pair_screen.dart';
 import 'screens/share_progress_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Check existing pairing in secure storage
+  // 1. Initialize Foreground Background Service configuration
+  await BackgroundService.initialize();
+
+  // 2. Check existing pairing in secure storage
   final pairing = await PairingStorageService.instance.getPairing();
 
   if (pairing != null) {
-    final keyBytes = Uint8List.fromList(base64Decode(pairing.pairingKey));
-    SocketService.instance.setEncryptionKey(keyBytes);
-    SocketService.instance.connect(pairing.serverUrl);
+    // Start persistent background service (which owns the single socket)
+    await BackgroundService.start();
   }
 
-  // Init clipboard service
+  // 3. Init UI proxy services
+  SocketService.instance.initUiProxy();
   ClipboardService.instance.init();
-
-  // Init file transfer service (handles incoming Windows→Android files)
-  FileTransferService.init();
+  FileTransferService.init(isBackgroundService: false);
 
   runApp(BridgeApp(isPaired: pairing != null));
 }
@@ -35,13 +37,15 @@ void main() async {
 void mainShare() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  await BackgroundService.initialize();
+
   final pairing = await PairingStorageService.instance.getPairing();
   if (pairing != null) {
-    final keyBytes = Uint8List.fromList(base64Decode(pairing.pairingKey));
-    SocketService.instance.setEncryptionKey(keyBytes);
+    await BackgroundService.start();
   }
 
-  FileTransferService.init();
+  SocketService.instance.initUiProxy();
+  FileTransferService.init(isBackgroundService: false);
 
   runApp(const ShareApp());
 }
@@ -101,13 +105,15 @@ class BridgeHome extends StatefulWidget {
 }
 
 class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
+  static bool _hasPromptedBattery = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Ensure connection is active and sync clipboard on first launch
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await SocketService.instance.ensureConnected();
+      await _checkPermissionsAndBattery();
       ClipboardService.instance.syncNow();
     });
   }
@@ -121,9 +127,72 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      debugPrint('[BridgeHome] App resumed, ensuring socket connection...');
-      SocketService.instance.ensureConnected();
+      debugPrint('[BridgeHome] App resumed, syncing clipboard...');
+      ClipboardService.instance.syncNow();
     }
+  }
+
+  Future<void> _checkPermissionsAndBattery() async {
+    if (!Platform.isAndroid || !mounted) return;
+
+    // 1. Request POST_NOTIFICATIONS runtime permission on Android 13+ (API 33+)
+    final notifGranted = await SystemChannel.isNotificationPermissionGranted();
+    if (!notifGranted) {
+      await SystemChannel.requestNotificationPermission();
+    }
+
+    // 2. Prompt user once for Battery Optimization exemption
+    if (!_hasPromptedBattery) {
+      _hasPromptedBattery = true;
+      final isIgnoring = await SystemChannel.isIgnoringBatteryOptimizations();
+      if (!isIgnoring && mounted) {
+        await _showBatteryOptimizationDialog();
+      }
+    }
+  }
+
+  Future<void> _showBatteryOptimizationDialog() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.battery_charging_full_rounded, color: Color(0xFF6366F1)),
+            SizedBox(width: 10),
+            Expanded(child: Text('Keep Bridge Alive')),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Allow Bridge to ignore battery optimizations so you can receive files and sync clipboard even when your phone is idle or locked.',
+              style: TextStyle(fontSize: 14, height: 1.4),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Note: On certain OEM devices (Xiaomi, Oppo, Vivo, Samsung), you may also need to allow "Autostart" in device app settings.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Later'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              SystemChannel.requestIgnoreBatteryOptimizations();
+            },
+            child: const Text('Allow'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _unpair() async {
@@ -132,7 +201,7 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
       builder: (ctx) => AlertDialog(
         title: const Text('Unpair Device?'),
         content: const Text(
-          'This will remove stored encryption keys and connection settings. You will need to scan the QR code again.',
+          'This will remove stored encryption keys and stop the background service. You will need to scan the QR code again.',
         ),
         actions: [
           TextButton(
@@ -149,6 +218,7 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
     );
 
     if (confirm == true) {
+      BackgroundService.stop();
       await PairingStorageService.instance.clearPairing();
       SocketService.instance.setEncryptionKey(null);
       SocketService.instance.disconnect();
@@ -197,7 +267,7 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
 
               // ── Connection status card ──────────────────────────────────
               ValueListenableBuilder<bool>(
@@ -205,7 +275,7 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                 builder: (context, isConnected, _) {
                   return _StatusCard(
                     connected: isConnected,
-                    serverUrl: SocketService.instance.currentUrl ?? 'Not connected',
+                    serverUrl: SocketService.instance.currentUrl ?? 'Connecting to PC...',
                     onScanAgain: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const ScanPairScreen()),
@@ -214,31 +284,67 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                   );
                 },
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
-              // ── Security Badge ──────────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.greenAccent.withAlpha(25),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.greenAccent.withAlpha(75)),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.lock_outline_rounded, size: 16, color: Colors.greenAccent),
-                    SizedBox(width: 8),
-                    Text(
-                      'End-to-End Encrypted (AES-256-GCM)',
-                      style: TextStyle(
-                        color: Colors.greenAccent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
+              // ── Security & Background Service Badges ───────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.greenAccent.withAlpha(20),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.greenAccent.withAlpha(60)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.lock_outline_rounded, size: 14, color: Colors.greenAccent),
+                          SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'AES-256-GCM',
+                              style: TextStyle(
+                                color: Colors.greenAccent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6366F1).withAlpha(20),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFF6366F1).withAlpha(60)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.notifications_active_outlined, size: 14, color: Color(0xFF818CF8)),
+                          SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              'Background Sync',
+                              style: TextStyle(
+                                color: Color(0xFF818CF8),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
 
@@ -247,8 +353,7 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                 icon: Icons.phone_android_rounded,
                 title: 'Android → Windows',
                 body:
-                    'Copy text in any app, then open Bridge. '
-                    'Bridge reads your clipboard the moment it comes to the foreground and sends it to Windows.',
+                    'Share files from any app (Gallery, Files) via the Share Sheet, or copy text and open Bridge.',
                 color: colorScheme.primaryContainer,
                 onColor: colorScheme.onPrimaryContainer,
               ),
@@ -257,40 +362,9 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                 icon: Icons.computer_rounded,
                 title: 'Windows → Android',
                 body:
-                    'Copy text on Windows. Bridge writes it to your Android clipboard instantly.',
+                    'Send files or copy text on Windows. Bridge receives files into Downloads even when closed.',
                 color: colorScheme.secondaryContainer,
                 onColor: colorScheme.onSecondaryContainer,
-              ),
-              const SizedBox(height: 12),
-
-              // ── Limitation notice ───────────────────────────────────────
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: colorScheme.outlineVariant,
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.info_outline_rounded,
-                        size: 18, color: colorScheme.outline),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Android → Windows sync requires Bridge to be open. '
-                        'Background clipboard monitoring is not available (Android OS restriction).',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
               ),
 
               const Spacer(),
@@ -317,7 +391,6 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                     final uris = picked.map((f) => f.path).whereType<String>().toList();
                     if (!context.mounted) return;
                     try {
-                      await SocketService.instance.ensureConnected();
                       await FileTransferService.sendFiles(uris);
                     } catch (e) {
                       if (context.mounted) {
@@ -341,7 +414,6 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                 width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: () async {
-                    await SocketService.instance.ensureConnected();
                     await ClipboardService.instance.syncNow(force: true);
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -349,7 +421,7 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                           content: Text(
                             SocketService.instance.isConnected
                                 ? 'Clipboard synchronized with Windows!'
-                                : 'Connecting to Windows... clipboard will sync upon connection.',
+                                : 'Syncing clipboard via Background Service...',
                           ),
                           duration: const Duration(seconds: 2),
                         ),
@@ -383,7 +455,7 @@ class _FileReceiveCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isError = progress.error;
-    final isDone  = progress.done && !isError;
+    final isDone = progress.done && !isError;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -505,7 +577,10 @@ class _StatusCard extends StatelessWidget {
           ),
           if (!connected) ...[
             TextButton.icon(
-              onPressed: () => SocketService.instance.ensureConnected(),
+              onPressed: () {
+                BackgroundService.start();
+                BackgroundService.restartSocket();
+              },
               icon: const Icon(Icons.refresh_rounded, size: 16),
               label: const Text('Reconnect'),
               style: TextButton.styleFrom(

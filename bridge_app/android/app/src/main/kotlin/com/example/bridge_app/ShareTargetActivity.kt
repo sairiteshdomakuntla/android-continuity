@@ -9,20 +9,6 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.plugin.common.MethodChannel
 
-/**
- * Lightweight activity that receives ACTION_SEND / ACTION_SEND_MULTIPLE intents
- * and hands the URIs to Flutter for transfer.
- *
- * Dedicated Engine strategy:
- *  - Creates a dedicated FlutterEngine running mainShare() entry point.
- *  - Destroyed when this activity finishes (shouldDestroyEngineWithHost = true).
- *  - Completely isolated from MainActivity to avoid engine attachment conflicts.
- *
- * URI permissions:
- *  - We do NOT call takePersistableUriPermission(). ACTION_SEND URIs carry a temporary
- *    read grant valid for the lifetime of this Activity. We stream the file
- *    during that window — the temporary grant is sufficient.
- */
 class ShareTargetActivity : FlutterActivity() {
 
     companion object {
@@ -30,7 +16,6 @@ class ShareTargetActivity : FlutterActivity() {
     }
 
     private var pendingUris: List<String> = emptyList()
-    private lateinit var filesHandler: FilesChannelHandler
 
     override fun onCreate(savedInstanceState: Bundle?) {
         pendingUris = extractUris(intent)
@@ -56,7 +41,6 @@ class ShareTargetActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         setupShareChannel(flutterEngine)
-        setupFilesChannel(flutterEngine)
     }
 
     private fun setupShareChannel(engine: FlutterEngine) {
@@ -67,14 +51,6 @@ class ShareTargetActivity : FlutterActivity() {
                     "finish"        -> { finish(); result.success(null) }
                     else            -> result.notImplemented()
                 }
-            }
-    }
-
-    private fun setupFilesChannel(engine: FlutterEngine) {
-        filesHandler = FilesChannelHandler(contentResolver)
-        MethodChannel(engine.dartExecutor.binaryMessenger, MainActivity.FILES_CHANNEL)
-            .setMethodCallHandler { call, result ->
-                filesHandler.handle(call, result)
             }
     }
 

@@ -3,11 +3,12 @@ import 'package:flutter/services.dart';
 import '../services/file_transfer_service.dart';
 import '../services/pairing_storage_service.dart';
 import '../services/socket_service.dart';
+import '../services/background_service.dart';
 
 const _shareChannel = MethodChannel('bridge/share');
 
 /// Bottom-sheet-style screen shown inside ShareTargetActivity.
-/// Reads shared URIs from Kotlin, streams them via FileTransferService.
+/// Reads shared URIs from Kotlin and routes the transfer through BackgroundService.
 class ShareProgressScreen extends StatefulWidget {
   const ShareProgressScreen({super.key});
 
@@ -53,7 +54,7 @@ class _ShareProgressScreenState extends State<ShareProgressScreen> {
       return;
     }
 
-    // 3. Connect socket
+    // 3. Ensure background service is running & socket is connected
     setState(() {
       _phase = _Phase.connecting;
       _statusText = 'Connecting to PC…';
@@ -61,6 +62,7 @@ class _ShareProgressScreenState extends State<ShareProgressScreen> {
     });
 
     try {
+      await BackgroundService.start();
       await SocketService.instance.ensureConnected(timeout: const Duration(seconds: 8));
     } catch (_) {
       _setError('Couldn\'t reach your PC.\nIs Bridge running on Windows?');
@@ -70,7 +72,7 @@ class _ShareProgressScreenState extends State<ShareProgressScreen> {
     // 4. Subscribe to send progress
     FileTransferService.sendProgress.addListener(_onProgress);
 
-    // 5. Send files
+    // 5. Send files via BackgroundService cross-isolate command
     setState(() {
       _phase = _Phase.sending;
       _statusText = 'Sending…';
@@ -83,28 +85,33 @@ class _ShareProgressScreenState extends State<ShareProgressScreen> {
       _setError('Transfer failed: $e');
       return;
     }
-
-    FileTransferService.sendProgress.removeListener(_onProgress);
-
-    setState(() {
-      _phase = _Phase.done;
-      _statusText = _totalCount > 1
-          ? 'Sent $_totalCount files to PC ✓'
-          : 'Sent to PC ✓';
-      _overallFraction = 1.0;
-    });
-
-    await Future.delayed(const Duration(milliseconds: 1200));
-    _finish();
   }
 
   void _onProgress() {
     final p = FileTransferService.sendProgress.value;
     if (p == null || !mounted) return;
+
+    if (p.error != null && p.error!.isNotEmpty) {
+      FileTransferService.sendProgress.removeListener(_onProgress);
+      _setError('Transfer failed: ${p.error}');
+      return;
+    }
+
     setState(() {
       _currentFileName = p.fileName;
-      _overallFraction = (_sentCount + p.fraction) / _totalCount;
-      if (p.done) _sentCount++;
+      _overallFraction = (_sentCount + p.fraction) / (_totalCount > 0 ? _totalCount : 1);
+      if (p.done) {
+        _sentCount++;
+        if (_sentCount >= _totalCount) {
+          _phase = _Phase.done;
+          _statusText = _totalCount > 1
+              ? 'Sent $_totalCount files to PC ✓'
+              : 'Sent to PC ✓';
+          _overallFraction = 1.0;
+          FileTransferService.sendProgress.removeListener(_onProgress);
+          Future.delayed(const Duration(milliseconds: 1200), _finish);
+        }
+      }
     });
   }
 
@@ -117,6 +124,12 @@ class _ShareProgressScreenState extends State<ShareProgressScreen> {
 
   void _finish() {
     _shareChannel.invokeMethod('finish');
+  }
+
+  @override
+  void dispose() {
+    FileTransferService.sendProgress.removeListener(_onProgress);
+    super.dispose();
   }
 
   @override

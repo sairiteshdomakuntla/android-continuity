@@ -1,4 +1,4 @@
-package com.example.bridge_app
+package com.example.bridge_core
 
 import android.content.ContentResolver
 import android.content.ContentValues
@@ -10,11 +10,6 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.InputStream
 import java.io.OutputStream
 
-/**
- * Handles all bridge/files MethodChannel calls.
- * Extracted so it can be reused by both MainActivity (warm start)
- * and ShareTargetActivity (cold start without a live MainActivity).
- */
 class FilesChannelHandler(private val contentResolver: ContentResolver) {
 
     private val inputStreams  = mutableMapOf<String, InputStream>()
@@ -94,7 +89,6 @@ class FilesChannelHandler(private val contentResolver: ContentResolver) {
                     }
                     var uri = contentResolver.insert(collection, values)
                     if (uri == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        // Fallback to generic external collection
                         uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                     }
                     if (uri == null) {

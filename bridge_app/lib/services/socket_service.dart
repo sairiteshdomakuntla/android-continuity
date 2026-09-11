@@ -1,16 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:uuid/uuid.dart';
 import '../models/bridge_message.dart';
 import 'crypto_service.dart';
 import 'pairing_storage_service.dart';
+import 'background_service.dart';
 
 typedef MessageHandler = void Function(BridgeMessage msg);
 
-/// Singleton that owns the Socket.IO client connection.
-/// All message dispatch goes through [onMessage] handlers.
+/// Singleton that owns the Socket.IO client connection in the background isolate,
+/// or acts as a proxy in the UI isolate.
 class SocketService {
   SocketService._();
   static final SocketService instance = SocketService._();
@@ -18,8 +20,9 @@ class SocketService {
   io.Socket? _socket;
   String? _currentUrl;
   Uint8List? _encKey;
+  bool _isUiProxy = false;
 
-  bool get isConnected => _socket?.connected ?? false;
+  bool get isConnected => connected.value;
   String? get currentUrl => _currentUrl;
   io.Socket? get rawSocket => _socket;
 
@@ -27,6 +30,22 @@ class SocketService {
 
   /// Notify listeners when connection state changes.
   final ValueNotifier<bool> connected = ValueNotifier(false);
+
+  /// Initializes the SocketService as a UI proxy driven by BackgroundService events.
+  void initUiProxy() {
+    _isUiProxy = true;
+    final service = FlutterBackgroundService();
+
+    service.on('connection_status').listen((event) {
+      if (event == null) return;
+      final isConn = event['connected'] as bool? ?? false;
+      final url = event['url'] as String?;
+      _currentUrl = url;
+      connected.value = isConn;
+    });
+
+    service.invoke('query_status');
+  }
 
   void setEncryptionKey(Uint8List? key) {
     _encKey = key;
@@ -55,9 +74,9 @@ class SocketService {
           .enableForceNew()
           .enableAutoConnect()
           .enableReconnection()
-          .setReconnectionDelay(500)       // retry after 500ms
-          .setReconnectionDelayMax(3000)   // cap at 3s
-          .setReconnectionAttempts(99999)  // effectively unlimited
+          .setReconnectionDelay(1000)      // retry after 1s
+          .setReconnectionDelayMax(15000)  // capped at 15s backoff
+          .setReconnectionAttempts(99999)  // persistent reconnect
           .build(),
     );
 
@@ -68,6 +87,7 @@ class SocketService {
 
     _socket!.onConnectError((data) {
       debugPrint('[SocketService] Connection error: $data');
+      connected.value = false;
     });
 
     _socket!.onError((data) {
@@ -113,9 +133,15 @@ class SocketService {
 
   Completer<void>? _pendingConnectCompleter;
 
-  /// Ensures that the socket is connected. Reconnects if disconnected and awaits connection.
+  /// Ensures that the socket is connected.
   Future<void> ensureConnected({Duration timeout = const Duration(seconds: 8)}) async {
     if (isConnected) return;
+
+    if (_isUiProxy) {
+      await BackgroundService.start();
+      BackgroundService.restartSocket();
+      return;
+    }
 
     if (_currentUrl == null || _encKey == null) {
       final pairing = await PairingStorageService.instance.getPairing();
@@ -173,33 +199,41 @@ class SocketService {
     }
   }
 
-  /// Performs the pairing handshake on this socket connection without tearing it down.
+  /// Performs the pairing handshake on a temporary socket connection and tears it down immediately.
   Future<void> performPairHandshake({
     required String serverUrl,
     required String pairingKey,
     required String deviceId,
     required String deviceName,
   }) async {
-    connect(serverUrl);
+    final tempSocket = io.io(
+      serverUrl,
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .build(),
+    );
 
     final completer = Completer<void>();
     Timer? timeoutTimer;
 
-    void onPairSuccess(dynamic data) {
+    void cleanup() {
       timeoutTimer?.cancel();
+      tempSocket.dispose();
+    }
+
+    void onPairSuccess(dynamic data) {
+      cleanup();
       debugPrint('[SocketService] Handshake confirmed by host: $data');
-      final keyBytes = Uint8List.fromList(base64Decode(pairingKey));
-      setEncryptionKey(keyBytes);
       if (!completer.isCompleted) {
         completer.complete();
       }
     }
 
     void onPairError(dynamic data) {
-      timeoutTimer?.cancel();
+      cleanup();
       debugPrint('[SocketService] Handshake rejected by host: $data');
       final msg = data is Map ? data['message'] ?? 'Handshake rejected' : 'Pairing handshake error';
-      disconnect();
       if (!completer.isCompleted) {
         completer.completeError(Exception(msg));
       }
@@ -207,31 +241,27 @@ class SocketService {
 
     void sendHandshake() {
       debugPrint('[SocketService] Sending pair-handshake to $serverUrl ...');
-      _socket!.emit('pair-handshake', {
+      tempSocket.emit('pair-handshake', {
         'pairingKey': pairingKey,
         'deviceId': deviceId,
         'deviceName': deviceName,
       });
     }
 
-    _socket!.once('pair-success', onPairSuccess);
-    _socket!.once('pair-error', onPairError);
+    tempSocket.once('pair-success', onPairSuccess);
+    tempSocket.once('pair-error', onPairError);
 
     timeoutTimer = Timer(const Duration(seconds: 12), () {
       if (!completer.isCompleted) {
-        disconnect();
+        cleanup();
         completer.completeError(Exception('Pairing timed out. Host did not respond in 12s.'));
       }
     });
 
-    if (isConnected) {
+    tempSocket.once('connect', (_) {
       sendHandshake();
-    } else {
-      _socket!.once('connect', (_) {
-        sendHandshake();
-      });
-      _socket!.connect();
-    }
+    });
+    tempSocket.connect();
 
     return completer.future;
   }
@@ -262,12 +292,16 @@ class SocketService {
   }
 
   /// Registers a handler for file-type messages.
-  /// The handler receives the decoded payload map directly.
   void onFileMessage(void Function(Map<String, dynamic> payload) handler) {
     onMessage(MessageType.file, (msg) => handler(Map<String, dynamic>.from(msg.payload)));
   }
 
-  /// Emits a file-type BridgeMessage with [payload] as the envelope payload.
+  /// Registers a handler for clipboard-type messages.
+  void onClipboardMessage(MessageHandler handler) {
+    onMessage(MessageType.clipboard, handler);
+  }
+
+  /// Emits a file-type BridgeMessage.
   Future<void> emitFileMessage(Map<String, dynamic> payload) async {
     final msg = BridgeMessage(
       eventId: const Uuid().v4(),
@@ -275,6 +309,18 @@ class SocketService {
       origin: Origin.android,
       timestamp: DateTime.now().toUtc().toIso8601String(),
       payload: payload,
+    );
+    await emit(msg);
+  }
+
+  /// Emits a clipboard-type BridgeMessage.
+  Future<void> emitClipboardMessage(String text) async {
+    final msg = BridgeMessage(
+      eventId: const Uuid().v4(),
+      type: MessageType.clipboard,
+      origin: Origin.android,
+      timestamp: DateTime.now().toUtc().toIso8601String(),
+      payload: {'text': text},
     );
     await emit(msg);
   }

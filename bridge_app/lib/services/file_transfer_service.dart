@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:uuid/uuid.dart';
 
 import 'socket_service.dart';
@@ -34,6 +35,24 @@ class FileSendProgress {
   });
 
   double get fraction => totalBytes > 0 ? bytesSent / totalBytes : 0.0;
+
+  Map<String, dynamic> toJson() => {
+    'transferId': transferId,
+    'fileName': fileName,
+    'bytesSent': bytesSent,
+    'totalBytes': totalBytes,
+    'done': done,
+    'error': error,
+  };
+
+  factory FileSendProgress.fromJson(Map<String, dynamic> json) => FileSendProgress(
+    transferId: json['transferId'] as String? ?? '',
+    fileName: json['fileName'] as String? ?? 'file',
+    bytesSent: json['bytesSent'] as int? ?? 0,
+    totalBytes: json['totalBytes'] as int? ?? 0,
+    done: json['done'] as bool? ?? false,
+    error: json['error'] as String?,
+  );
 }
 
 class FileReceiveProgress {
@@ -54,6 +73,24 @@ class FileReceiveProgress {
   });
 
   double get fraction => totalBytes > 0 ? bytesReceived / totalBytes : 0.0;
+
+  Map<String, dynamic> toJson() => {
+    'transferId': transferId,
+    'fileName': fileName,
+    'bytesReceived': bytesReceived,
+    'totalBytes': totalBytes,
+    'done': done,
+    'error': error,
+  };
+
+  factory FileReceiveProgress.fromJson(Map<String, dynamic> json) => FileReceiveProgress(
+    transferId: json['transferId'] as String? ?? '',
+    fileName: json['fileName'] as String? ?? 'file',
+    bytesReceived: json['bytesReceived'] as int? ?? 0,
+    totalBytes: json['totalBytes'] as int? ?? 0,
+    done: json['done'] as bool? ?? false,
+    error: json['error'] as bool? ?? false,
+  );
 }
 
 // ── Helper sink for incremental SHA-256 calculation ─────────────────────────
@@ -123,31 +160,108 @@ class FileTransferService {
   static ValueNotifier<FileSendProgress?> get sendProgress => instance._sendProgress;
   static ValueNotifier<FileReceiveProgress?> get receiveProgress => instance._receiveProgress;
 
-  static void init() => instance._init();
-  static Future<void> sendFiles(List<String> paths) => instance._sendFiles(paths);
-  static Future<void> sendFile(String sourcePath) => instance._sendFile(sourcePath);
+  static void init({
+    bool isBackgroundService = false,
+    void Function(FileReceiveProgress)? onReceiveProgress,
+    void Function(String fileName, String pcName)? onFileReceived,
+  }) =>
+      instance._init(
+        isBackgroundService: isBackgroundService,
+        onReceiveProgress: onReceiveProgress,
+        onFileReceived: onFileReceived,
+      );
+
+  static Future<void> sendFiles(
+    List<String> paths, {
+    void Function(FileSendProgress)? onSendProgress,
+  }) =>
+      instance._sendFiles(paths, onSendProgress: onSendProgress);
+
+  static Future<void> sendFile(
+    String sourcePath, {
+    void Function(FileSendProgress)? onSendProgress,
+  }) =>
+      instance._sendFile(sourcePath, onSendProgress: onSendProgress);
 
   final ValueNotifier<FileSendProgress?> _sendProgress = ValueNotifier(null);
   final ValueNotifier<FileReceiveProgress?> _receiveProgress = ValueNotifier(null);
 
   final _receives = <String, _ReceiveState>{};
+  bool _isBackground = false;
+  void Function(FileReceiveProgress)? _onReceiveProgress;
+  void Function(String fileName, String pcName)? _onFileReceived;
 
-  void _init() {
-    SocketService.instance.onFileMessage(_handleIncoming);
+  void _init({
+    bool isBackgroundService = false,
+    void Function(FileReceiveProgress)? onReceiveProgress,
+    void Function(String fileName, String pcName)? onFileReceived,
+  }) {
+    _isBackground = isBackgroundService;
+    _onReceiveProgress = onReceiveProgress;
+    _onFileReceived = onFileReceived;
+
+    if (isBackgroundService) {
+      SocketService.instance.onFileMessage(_handleIncoming);
+    } else {
+      // In UI isolate: subscribe to cross-isolate events from FlutterBackgroundService
+      final service = FlutterBackgroundService();
+      service.on('file_receive_progress').listen((event) {
+        if (event == null) return;
+        final progress = FileReceiveProgress.fromJson(Map<String, dynamic>.from(event));
+        _receiveProgress.value = progress;
+        if (progress.done) {
+          Future.delayed(const Duration(seconds: 4), () {
+            if (_receiveProgress.value?.transferId == progress.transferId) {
+              _receiveProgress.value = null;
+            }
+          });
+        }
+      });
+
+      service.on('file_send_progress').listen((event) {
+        if (event == null) return;
+        final progress = FileSendProgress.fromJson(Map<String, dynamic>.from(event));
+        _sendProgress.value = progress;
+        if (progress.done) {
+          Future.delayed(const Duration(seconds: 4), () {
+            if (_sendProgress.value?.transferId == progress.transferId) {
+              _sendProgress.value = null;
+            }
+          });
+        }
+      });
+    }
   }
 
   // ── Android → Windows: send one or more files ─────────────────────────────
 
-  Future<void> _sendFiles(List<String> paths) async {
+  Future<void> _sendFiles(
+    List<String> paths, {
+    void Function(FileSendProgress)? onSendProgress,
+  }) async {
+    if (!_isBackground) {
+      // In UI isolate: delegate to background service isolate
+      FlutterBackgroundService().invoke('send_files', {'paths': paths});
+      return;
+    }
+
     for (final path in paths) {
-      await _sendFile(path);
+      await _sendFile(path, onSendProgress: onSendProgress);
     }
   }
 
   /// Sends a file to Windows. [sourcePath] is either:
   /// - A content:// URI (from share sheet — streams via platform channel)
   /// - A file:// path or raw file path (from in-app file picker — reads via dart:io)
-  Future<void> _sendFile(String sourcePath) async {
+  Future<void> _sendFile(
+    String sourcePath, {
+    void Function(FileSendProgress)? onSendProgress,
+  }) async {
+    if (!_isBackground) {
+      FlutterBackgroundService().invoke('send_files', {'paths': [sourcePath]});
+      return;
+    }
+
     final pairing = await PairingStorageService.instance.getPairing();
     if (pairing == null) throw Exception('Not paired');
 
@@ -159,6 +273,11 @@ class FileTransferService {
     String fileName;
     String mimeType;
     int totalBytes;
+
+    void notifyProgress(FileSendProgress p) {
+      _sendProgress.value = p;
+      onSendProgress?.call(p);
+    }
 
     if (isContentUri) {
       // Content URI: use platform channel to open and stream
@@ -202,25 +321,25 @@ class FileTransferService {
         });
         bytesSent += chunk.length;
         index++;
-        _sendProgress.value = FileSendProgress(
+        notifyProgress(FileSendProgress(
           transferId: transferId,
           fileName: fileName,
           bytesSent: bytesSent,
           totalBytes: totalBytes,
           done: false,
-        );
+        ));
       }
       await _filesChannel.invokeMethod('closeInputStream', {'token': token});
       hashSink.close();
       final digest = digestSink.value?.toString() ?? '';
       _emit({'event': 'file-complete', 'transferId': transferId, 'sha256': digest});
-      _sendProgress.value = FileSendProgress(
+      notifyProgress(FileSendProgress(
         transferId: transferId,
         fileName: fileName,
         bytesSent: bytesSent,
         totalBytes: totalBytes,
         done: true,
-      );
+      ));
     } else {
       // Regular file path from file_picker — stream via dart:io
       final file = File(sourcePath);
@@ -255,24 +374,24 @@ class FileTransferService {
         });
         bytesSent += bytes.length;
         index++;
-        _sendProgress.value = FileSendProgress(
+        notifyProgress(FileSendProgress(
           transferId: transferId,
           fileName: fileName,
           bytesSent: bytesSent,
           totalBytes: totalBytes,
           done: false,
-        );
+        ));
       }
       hashSink.close();
       final digest = digestSink.value?.toString() ?? '';
       _emit({'event': 'file-complete', 'transferId': transferId, 'sha256': digest});
-      _sendProgress.value = FileSendProgress(
+      notifyProgress(FileSendProgress(
         transferId: transferId,
         fileName: fileName,
         bytesSent: bytesSent,
         totalBytes: totalBytes,
         done: true,
-      );
+      ));
     }
   }
 
@@ -313,13 +432,15 @@ class FileTransferService {
     // CRITICAL: Register state synchronously before ANY await, so chunks that arrive immediately are not lost
     _receives[transferId] = state;
 
-    _receiveProgress.value = FileReceiveProgress(
+    final prog = FileReceiveProgress(
       transferId: transferId,
       fileName: fileName,
       bytesReceived: 0,
       totalBytes: totalBytes,
       done: false,
     );
+    _receiveProgress.value = prog;
+    _onReceiveProgress?.call(prog);
 
     try {
       await _filesChannel.invokeMethod('createDownload', {
@@ -347,13 +468,15 @@ class FileTransferService {
     state.bytesReceived += rawBytes.length;
     state.chunksReceived++;
 
-    _receiveProgress.value = FileReceiveProgress(
+    final prog = FileReceiveProgress(
       transferId: transferId,
       fileName: state.fileName,
       bytesReceived: state.bytesReceived,
       totalBytes: state.totalBytes,
       done: false,
     );
+    _receiveProgress.value = prog;
+    _onReceiveProgress?.call(prog);
 
     state.queueWrite(() async {
       final ready = await state.initCompleter.future;
@@ -383,7 +506,7 @@ class FileTransferService {
 
     if (!ready) {
       debugPrint('[FileTransferService] Download init failed for "${state.fileName}"');
-      _receiveProgress.value = FileReceiveProgress(
+      final prog = FileReceiveProgress(
         transferId: transferId,
         fileName: state.fileName,
         bytesReceived: state.bytesReceived,
@@ -391,11 +514,8 @@ class FileTransferService {
         done: true,
         error: true,
       );
-      Future.delayed(const Duration(seconds: 4), () {
-        if (_receiveProgress.value?.transferId == transferId) {
-          _receiveProgress.value = null;
-        }
-      });
+      _receiveProgress.value = prog;
+      _onReceiveProgress?.call(prog);
       return;
     }
 
@@ -408,18 +528,18 @@ class FileTransferService {
       } catch (e) {
         debugPrint('[FileTransferService] finalizeDownload error: $e');
       }
-      _receiveProgress.value = FileReceiveProgress(
+      final prog = FileReceiveProgress(
         transferId: transferId,
         fileName: state.fileName,
         bytesReceived: state.bytesReceived,
         totalBytes: state.totalBytes,
         done: true,
       );
-      Future.delayed(const Duration(seconds: 4), () {
-        if (_receiveProgress.value?.transferId == transferId) {
-          _receiveProgress.value = null;
-        }
-      });
+      _receiveProgress.value = prog;
+      _onReceiveProgress?.call(prog);
+
+      // Trigger completion notification in background service
+      _onFileReceived?.call(state.fileName, 'Windows PC');
     } else {
       debugPrint('[FileTransferService] Checksum mismatch for "${state.fileName}"! Expected: $expected, Computed: $computed. Deleting.');
       try {
@@ -427,7 +547,7 @@ class FileTransferService {
       } catch (e) {
         debugPrint('[FileTransferService] deleteDownload error: $e');
       }
-      _receiveProgress.value = FileReceiveProgress(
+      final prog = FileReceiveProgress(
         transferId: transferId,
         fileName: state.fileName,
         bytesReceived: state.bytesReceived,
@@ -435,11 +555,8 @@ class FileTransferService {
         done: true,
         error: true,
       );
-      Future.delayed(const Duration(seconds: 4), () {
-        if (_receiveProgress.value?.transferId == transferId) {
-          _receiveProgress.value = null;
-        }
-      });
+      _receiveProgress.value = prog;
+      _onReceiveProgress?.call(prog);
     }
   }
 
