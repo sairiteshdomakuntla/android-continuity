@@ -9,6 +9,7 @@ import 'services/pairing_storage_service.dart';
 import 'services/background_service.dart';
 import 'services/system_channel.dart';
 import 'services/clipboard_history_service.dart';
+import 'services/notifications_channel.dart';
 import 'screens/scan_pair_screen.dart';
 import 'screens/share_progress_screen.dart';
 import 'screens/camera_screen.dart';
@@ -129,16 +130,42 @@ class BridgeHome extends StatefulWidget {
   State<BridgeHome> createState() => _BridgeHomeState();
 }
 
-class _BridgeHomeState extends State<BridgeHome> {
+class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
   static bool _hasPromptedBattery = false;
+  bool _notificationAccessGranted = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _checkPermissionsAndBattery();
       ClipboardService.instance.syncNow();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkNotificationAccess();
+      ClipboardService.instance.syncNow();
+    }
+  }
+
+  Future<void> _checkNotificationAccess() async {
+    if (!Platform.isAndroid || !mounted) return;
+    final granted = await NotificationsChannel.isNotificationAccessGranted();
+    if (mounted && granted != _notificationAccessGranted) {
+      setState(() {
+        _notificationAccessGranted = granted;
+      });
+    }
   }
 
   Future<void> _checkPermissionsAndBattery() async {
@@ -150,7 +177,10 @@ class _BridgeHomeState extends State<BridgeHome> {
       await SystemChannel.requestNotificationPermission();
     }
 
-    // 2. Prompt user once for Battery Optimization exemption
+    // 2. Check NotificationListenerService access
+    await _checkNotificationAccess();
+
+    // 3. Prompt user once for Battery Optimization exemption
     if (!_hasPromptedBattery) {
       _hasPromptedBattery = true;
       final isIgnoring = await SystemChannel.isIgnoringBatteryOptimizations();
@@ -356,7 +386,63 @@ class _BridgeHomeState extends State<BridgeHome> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+
+              // ── Notification Access Banner (if not granted) ─────────────
+              if (!_notificationAccessGranted) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF6366F1).withAlpha(22),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFF6366F1).withAlpha(80)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.notifications_active_rounded,
+                          color: Color(0xFF818CF8), size: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Sync Phone Notifications',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Show alerts & reply directly from Windows PC.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.tonal(
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: () =>
+                            NotificationsChannel.requestNotificationAccess(),
+                        child: const Text('Enable',
+                            style: TextStyle(
+                                fontSize: 12, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
 
               // ── How it works ────────────────────────────────────────────
               _InfoCard(

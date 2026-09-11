@@ -4,7 +4,8 @@ enum MessageType {
   clipboard,
   file,
   cameraSignal,
-  ping;
+  ping,
+  notification;
 
   String toJson() {
     return switch (this) {
@@ -19,6 +20,7 @@ enum MessageType {
       'file' => MessageType.file,
       'camera-signal' => MessageType.cameraSignal,
       'ping' => MessageType.ping,
+      'notification' => MessageType.notification,
       _ => throw ArgumentError('Unknown MessageType: $value'),
     };
   }

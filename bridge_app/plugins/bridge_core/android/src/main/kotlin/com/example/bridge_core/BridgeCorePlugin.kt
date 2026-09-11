@@ -11,10 +11,12 @@ class BridgeCorePlugin : FlutterPlugin, ActivityAware {
     companion object {
         const val FILES_CHANNEL = "bridge/files"
         const val SYSTEM_CHANNEL = "bridge/system"
+        const val NOTIFICATION_CHANNEL = "bridge/notifications"
     }
 
     private var filesChannel: MethodChannel? = null
     private var systemChannel: MethodChannel? = null
+    private var notificationsChannel: MethodChannel? = null
     private var currentActivity: Activity? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -27,13 +29,24 @@ class BridgeCorePlugin : FlutterPlugin, ActivityAware {
         systemChannel = MethodChannel(binding.binaryMessenger, SYSTEM_CHANNEL).apply {
             setMethodCallHandler { call, result -> systemHandler.handle(call, result) }
         }
+
+        val notificationsHandler = NotificationsChannelHandler(binding.applicationContext)
+        notificationsChannel = MethodChannel(binding.binaryMessenger, NOTIFICATION_CHANNEL).apply {
+            setMethodCallHandler { call, result -> notificationsHandler.handle(call, result) }
+        }
+        NotificationsChannelHandler.registerChannel(notificationsChannel!!)
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         filesChannel?.setMethodCallHandler(null)
         systemChannel?.setMethodCallHandler(null)
+        notificationsChannel?.let {
+            it.setMethodCallHandler(null)
+            NotificationsChannelHandler.unregisterChannel(it)
+        }
         filesChannel = null
         systemChannel = null
+        notificationsChannel = null
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {

@@ -135,9 +135,34 @@ Reserved for keep-alive / connection testing.
 }
 ```
 
-### `file` / `camera-signal`
+### `notification`
 
-Reserved for future use. Not implemented in v1.
+Transfers notification events between Android and Windows:
+- `posted`: Android posts notification details (including Direct Reply support).
+- `dismissed`: Android notifies Windows that user dismissed on phone.
+- `reply`: Windows instructs Android to execute `RemoteInput` reply on notification.
+- `reply-failed`: Android notifies Windows that executing reply failed (e.g. `PendingIntent.CanceledException`).
+- `dismiss-request`: Windows instructs Android to cancel/dismiss notification.
+
+```json
+{
+  "eventId": "...",
+  "type": "notification",
+  "origin": "android",
+  "timestamp": "...",
+  "payload": {
+    "event": "posted",
+    "notificationId": "0|com.whatsapp|1|null|10123",
+    "packageName": "com.whatsapp",
+    "appName": "WhatsApp",
+    "title": "Alice",
+    "text": "Hey!",
+    "timestamp": "2026-09-11T18:20:00.000Z",
+    "hasReplyAction": true,
+    "hasQuickActions": []
+  }
+}
+```
 
 ---
 

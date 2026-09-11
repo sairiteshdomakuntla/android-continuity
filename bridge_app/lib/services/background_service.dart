@@ -16,6 +16,7 @@ import 'file_transfer_service.dart';
 import 'pairing_storage_service.dart';
 import 'event_dedupe.dart';
 import 'system_channel.dart';
+import 'notifications_channel.dart';
 
 const String _kNotificationChannelId = 'bridge_foreground_service';
 const String _kFileNotificationChannelId = 'bridge_file_transfers';
@@ -273,6 +274,65 @@ void onStart(ServiceInstance service) async {
       'eventId': msg.eventId,
       'payload': msg.payload,
     });
+  });
+
+  // ── Notification sync ──────────────────────────────────────────────────────
+  // 1. Forward notifications captured by native BridgeNotificationListenerService to Windows
+  NotificationsChannel.setEventListener((event) async {
+    final eventType = event['event'] as String? ?? 'unknown';
+    if (!SocketService.instance.isConnected) {
+      debugPrint('[BackgroundService] [NOTIFICATION] Dropping notification [$eventType] — socket not connected');
+      return;
+    }
+
+    final msg = BridgeMessage(
+      eventId: const Uuid().v4(),
+      type: MessageType.notification,
+      origin: Origin.android,
+      timestamp: DateTime.now().toUtc().toIso8601String(),
+      payload: event,
+    );
+
+    debugPrint('[BackgroundService] [NOTIFICATION] [SEND] Outgoing notification [$eventType] for ${event['notificationId']} (${event['appName'] ?? ''})');
+    await SocketService.instance.emit(msg);
+  });
+
+  // 2. Handle incoming notification actions from Windows (reply, dismiss-request)
+  SocketService.instance.onMessage(MessageType.notification, (msg) async {
+    final event = msg.payload['event'] as String?;
+    final notificationId = msg.payload['notificationId'] as String?;
+
+    if (notificationId == null || notificationId.isEmpty) {
+      debugPrint('[BackgroundService] [NOTIFICATION] Received message with missing notificationId — dropped');
+      return;
+    }
+
+    debugPrint('[BackgroundService] [NOTIFICATION] [RECV] Action [$event] for $notificationId');
+
+    if (event == 'reply') {
+      final replyText = msg.payload['replyText'] as String? ?? '';
+      debugPrint('[BackgroundService] [NOTIFICATION] Executing reply on $notificationId: "$replyText"');
+      final success = await NotificationsChannel.sendReply(notificationId, replyText);
+
+      if (!success) {
+        debugPrint('[BackgroundService] [NOTIFICATION] Reply failed for $notificationId — notifying Windows');
+        final failMsg = BridgeMessage(
+          eventId: const Uuid().v4(),
+          type: MessageType.notification,
+          origin: Origin.android,
+          timestamp: DateTime.now().toUtc().toIso8601String(),
+          payload: {
+            'event': 'reply-failed',
+            'notificationId': notificationId,
+            'error': 'Reply failed (notification may have been updated or canceled)',
+          },
+        );
+        await SocketService.instance.emit(failMsg);
+      }
+    } else if (event == 'dismiss-request') {
+      debugPrint('[BackgroundService] [NOTIFICATION] Executing dismiss on $notificationId');
+      await NotificationsChannel.dismissNotification(notificationId);
+    }
   });
 
   // Cross-isolate UI command: Send clipboard to Windows

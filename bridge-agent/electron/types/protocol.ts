@@ -1,4 +1,4 @@
-export type MessageType = 'clipboard' | 'file' | 'camera-signal' | 'ping'
+export type MessageType = 'clipboard' | 'file' | 'camera-signal' | 'ping' | 'notification'
 export type Origin = 'android' | 'windows'
 
 export interface BridgeMessage<T = unknown> {
@@ -62,3 +62,46 @@ export type CameraSignalPayload =
   | CameraOfferPayload
   | CameraAnswerPayload
   | CameraIcePayload
+
+// ── Notification sync ────────────────────────────────────────────────────────
+
+export interface NotificationPostedPayload {
+  event: 'posted'
+  notificationId: string
+  packageName: string
+  appName: string
+  title: string
+  text: string
+  timestamp: string
+  hasReplyAction: boolean
+  hasQuickActions: string[]
+}
+
+export interface NotificationDismissedPayload {
+  event: 'dismissed'
+  notificationId: string
+}
+
+export interface NotificationReplyPayload {
+  event: 'reply'
+  notificationId: string
+  replyText: string
+}
+
+export interface NotificationReplyFailedPayload {
+  event: 'reply-failed'
+  notificationId: string
+  error?: string
+}
+
+export interface NotificationDismissRequestPayload {
+  event: 'dismiss-request'
+  notificationId: string
+}
+
+export type NotificationPayload =
+  | NotificationPostedPayload
+  | NotificationDismissedPayload
+  | NotificationReplyPayload
+  | NotificationReplyFailedPayload
+  | NotificationDismissRequestPayload

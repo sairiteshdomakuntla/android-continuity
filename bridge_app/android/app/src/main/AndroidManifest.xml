@@ -27,6 +27,15 @@
             android:foregroundServiceType="dataSync"
             android:exported="true"
             tools:replace="android:exported" />
+        <service
+            android:name="com.example.bridge_core.BridgeNotificationListenerService"
+            android:label="Bridge Notification Service"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"

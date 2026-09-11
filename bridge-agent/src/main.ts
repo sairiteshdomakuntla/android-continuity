@@ -39,6 +39,18 @@ interface ClipboardHistoryItem {
   origin: 'android' | 'windows'
 }
 
+interface NotificationItem {
+  notificationId: string
+  packageName: string
+  appName: string
+  title: string
+  text: string
+  timestamp: string
+  hasReplyAction: boolean
+  hasQuickActions: string[]
+  replyError?: string
+}
+
 interface FileSendProgress {
   transferId: string
   fileName: string
@@ -50,6 +62,9 @@ interface FileSendProgress {
 
 const appEl = document.querySelector<HTMLDivElement>('#app')!
 let clipboardHistory: ClipboardHistoryItem[] = []
+let notificationsList: NotificationItem[] = []
+let replyDrafts: Record<string, string> = {}
+let replySubmitting: Record<string, boolean> = {}
 let lastStatus: StatusResponse | null = null
 
 function getRelativeTime(isoString: string): string {
@@ -75,6 +90,61 @@ function escapeHtml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+}
+
+function renderNotificationItem(item: NotificationItem): string {
+  const hasReply = item.hasReplyAction
+  const draft = replyDrafts[item.notificationId] || ''
+  const isSubmitting = !!replySubmitting[item.notificationId]
+
+  return `
+    <div class="notification-item" data-notif-id="${escapeHtml(item.notificationId)}">
+      <div class="notification-top">
+        <div class="notification-app">
+          <span class="notification-app-icon">💬</span>
+          <span class="notification-app-name">${escapeHtml(item.appName || 'Phone')}</span>
+          <span class="notification-time">${getRelativeTime(item.timestamp)}</span>
+        </div>
+        <button
+          class="notification-dismiss"
+          data-dismiss-id="${escapeHtml(item.notificationId)}"
+          title="Dismiss notification"
+        >✕</button>
+      </div>
+
+      ${item.title ? `<div class="notification-title">${escapeHtml(item.title)}</div>` : ''}
+      ${item.text ? `<div class="notification-body">${escapeHtml(item.text)}</div>` : ''}
+
+      ${
+        item.replyError
+          ? `<div class="reply-error-badge">⚠️ ${escapeHtml(item.replyError)}</div>`
+          : ''
+      }
+
+      ${
+        hasReply
+          ? `
+        <div class="notification-reply-box">
+          <input
+            type="text"
+            class="reply-input"
+            data-reply-id="${escapeHtml(item.notificationId)}"
+            placeholder="Reply to ${escapeHtml(item.appName || 'notification')}…"
+            value="${escapeHtml(draft)}"
+          />
+          <button
+            class="reply-btn"
+            data-send-reply-id="${escapeHtml(item.notificationId)}"
+            ${isSubmitting ? 'disabled' : ''}
+          >
+            ${isSubmitting ? 'Sending…' : 'Reply'}
+          </button>
+        </div>
+      `
+          : ''
+      }
+    </div>
+  `
 }
 
 function render(state: StatusResponse) {
@@ -148,7 +218,7 @@ function render(state: StatusResponse) {
           <span class="device-id">${state.devices[0].deviceId.slice(0, 8)}...</span>
         </div>
         <p class="instruction">
-          Encrypted tunnel established. Clipboard synchronization is active.
+          Encrypted tunnel established. Clipboard & notification synchronization active.
         </p>
         <div id="camera-progress-container" class="camera-progress-container" style="display:none">
           <div class="camera-progress-title">📷 Setting up camera support…</div>
@@ -190,6 +260,28 @@ function render(state: StatusResponse) {
         : ''
     }
 
+    <!-- ── Phone Notifications Card ──────────────────────────────── -->
+    <div class="notifications-card">
+      <div class="notifications-header">
+        <div class="notifications-title">
+          <span>🔔 Phone Notifications</span>
+          <span class="notifications-count">${notificationsList.length}/20</span>
+        </div>
+        ${
+          notificationsList.length > 0
+            ? '<button id="btn-clear-notifications" class="text-btn">Clear all</button>'
+            : ''
+        }
+      </div>
+      <div class="notifications-list" id="notifications-list">
+        ${
+          notificationsList.length === 0
+            ? '<div class="notifications-empty">No notifications from phone yet.<br>Incoming alerts will appear here in real-time.</div>'
+            : notificationsList.map(renderNotificationItem).join('')
+        }
+      </div>
+    </div>
+
     <!-- ── Clipboard History Card ────────────────────────────────────── -->
     <div class="history-card">
       <div class="history-header">
@@ -224,7 +316,7 @@ function render(state: StatusResponse) {
     </div>
   `
 
-  // Attach handlers
+  // ── Attach Handlers ────────────────────────────────────────────────────────
   document.querySelector('#camera-error-close')?.addEventListener('click', () => {
     const errorBanner = document.getElementById('camera-error-banner')
     if (errorBanner) errorBanner.style.display = 'none'
@@ -268,6 +360,48 @@ function render(state: StatusResponse) {
     refresh()
   })
 
+  document.querySelector('#btn-clear-notifications')?.addEventListener('click', async () => {
+    await window.ipcRenderer.invoke('clear-notifications')
+  })
+
+  // Dismiss notification buttons
+  document.querySelectorAll<HTMLButtonElement>('.notification-dismiss').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      const notifId = btn.getAttribute('data-dismiss-id')
+      if (notifId) {
+        await window.ipcRenderer.invoke('dismiss-notification', notifId)
+      }
+    })
+  })
+
+  // Reply inputs: remember draft
+  document.querySelectorAll<HTMLInputElement>('.reply-input').forEach((input) => {
+    const notifId = input.getAttribute('data-reply-id')
+    if (!notifId) return
+
+    input.addEventListener('input', () => {
+      replyDrafts[notifId] = input.value
+    })
+
+    input.addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        await submitReply(notifId)
+      }
+    })
+  })
+
+  // Reply buttons: trigger reply
+  document.querySelectorAll<HTMLButtonElement>('.reply-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const notifId = btn.getAttribute('data-send-reply-id')
+      if (notifId) {
+        await submitReply(notifId)
+      }
+    })
+  })
+
   // History item click to copy locally
   document.querySelectorAll<HTMLDivElement>('.history-item').forEach((el) => {
     el.addEventListener('click', async () => {
@@ -292,6 +426,25 @@ function render(state: StatusResponse) {
   })
 }
 
+async function submitReply(notificationId: string) {
+  const text = (replyDrafts[notificationId] || '').trim()
+  if (!text) return
+
+  replySubmitting[notificationId] = true
+  if (lastStatus) render(lastStatus)
+
+  try {
+    await window.ipcRenderer.invoke('send-notification-reply', notificationId, text)
+    // Note: If reply fails asynchronously, reply-failed event will set item.replyError
+    // Keep draft in case of failure so user doesn't lose their typed message
+  } catch (err) {
+    console.error('Error invoking send-notification-reply:', err)
+  } finally {
+    replySubmitting[notificationId] = false
+    if (lastStatus) render(lastStatus)
+  }
+}
+
 function showCameraError(msg: string) {
   const banner = document.getElementById('camera-error-banner')
   const text = document.getElementById('camera-error-text')
@@ -310,6 +463,14 @@ async function refresh() {
         clipboardHistory = history
       }
     } catch {}
+
+    try {
+      const notifs = (await window.ipcRenderer.invoke('get-notifications')) as NotificationItem[]
+      if (Array.isArray(notifs)) {
+        notificationsList = notifs
+      }
+    } catch {}
+
     render(status)
   } catch (e) {
     console.error('Failed to get status:', e)
@@ -328,6 +489,15 @@ window.ipcRenderer.on('pairing-state-changed', () => {
 window.ipcRenderer.on('clipboard-history-updated', (_event, items: ClipboardHistoryItem[]) => {
   if (Array.isArray(items)) {
     clipboardHistory = items
+    if (lastStatus) {
+      render(lastStatus)
+    }
+  }
+})
+
+window.ipcRenderer.on('notifications-updated', (_event, items: NotificationItem[]) => {
+  if (Array.isArray(items)) {
+    notificationsList = items
     if (lastStatus) {
       render(lastStatus)
     }

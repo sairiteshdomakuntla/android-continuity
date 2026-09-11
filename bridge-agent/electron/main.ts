@@ -9,6 +9,8 @@ import { FileTransferService } from './services/FileTransferService.js'
 import { CameraSignalService } from './services/CameraSignalService.js'
 import { ObsManagerService } from './services/ObsManagerService.js'
 import { ClipboardHistoryService } from './services/ClipboardHistoryService.js'
+import { NotificationHistoryService } from './services/NotificationHistoryService.js'
+import { NotificationService } from './services/NotificationService.js'
 
 export { ObsManagerService, CameraSignalService }
 
@@ -160,12 +162,39 @@ ipcMain.handle('clear-clipboard-history', async () => {
   return { success: true }
 })
 
+// ── Notification IPC ─────────────────────────────────────────────────────────
+
+ipcMain.handle('get-notifications', async () => {
+  return NotificationHistoryService.getItems()
+})
+
+ipcMain.handle('send-notification-reply', async (_event, notificationId: string, replyText: string) => {
+  NotificationService.sendReply(notificationId, replyText)
+  return { success: true }
+})
+
+ipcMain.handle('dismiss-notification', async (_event, notificationId: string) => {
+  NotificationService.dismissNotification(notificationId)
+  return { success: true }
+})
+
+ipcMain.handle('clear-notifications', async () => {
+  NotificationHistoryService.clear()
+  return { success: true }
+})
+
 app.whenReady().then(async () => {
   // Initialize Clipboard History
   ClipboardHistoryService.init()
   ClipboardHistoryService.onUpdate((items) => {
     win?.webContents.send('clipboard-history-updated', items)
   })
+
+  // Initialize Notification Service
+  NotificationHistoryService.onUpdate((items) => {
+    win?.webContents.send('notifications-updated', items)
+  })
+  NotificationService.start()
 
   // 1. Start Socket.IO server
   const io = SocketService.start()
