@@ -10,6 +10,10 @@ import 'package:uuid/uuid.dart';
 
 import 'socket_service.dart';
 import 'pairing_storage_service.dart';
+import 'system_channel.dart';
+import 'clipboard_service.dart';
+import 'clipboard_history_service.dart';
+import '../models/bridge_message.dart';
 
 const _filesChannel = MethodChannel('bridge/files');
 const _chunkSize = 65536; // 64 KB
@@ -114,6 +118,9 @@ class _ReceiveState {
   final String fileName;
   final int totalChunks;
   final int totalBytes;
+  final bool isClipboardImage;
+  final String? destPath;
+  IOSink? fileSink;
   final _DigestSink _digestSink = _DigestSink();
   late final ByteConversionSink _hashSink;
   final Completer<bool> initCompleter = Completer<bool>();
@@ -126,6 +133,8 @@ class _ReceiveState {
     required this.fileName,
     required this.totalChunks,
     required this.totalBytes,
+    this.isClipboardImage = false,
+    this.destPath,
   }) {
     _hashSink = sha256.startChunkedConversion(_digestSink);
   }
@@ -183,6 +192,13 @@ class FileTransferService {
   }) =>
       instance._sendFile(sourcePath, onSendProgress: onSendProgress);
 
+  static Future<String> sendClipboardImage(
+    Uint8List bytes, {
+    String mimeType = 'image/png',
+    String? transferId,
+  }) =>
+      instance._sendClipboardImage(bytes, mimeType: mimeType, transferId: transferId);
+
   final ValueNotifier<FileSendProgress?> _sendProgress = ValueNotifier(null);
   final ValueNotifier<FileReceiveProgress?> _receiveProgress = ValueNotifier(null);
 
@@ -190,6 +206,7 @@ class FileTransferService {
   bool _isBackground = false;
   void Function(FileReceiveProgress)? _onReceiveProgress;
   void Function(String fileName, String pcName)? _onFileReceived;
+  Future<void> _sendQueue = Future.value();
 
   void _init({
     bool isBackgroundService = false,
@@ -233,6 +250,21 @@ class FileTransferService {
     }
   }
 
+  Future<T> _enqueueSend<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _sendQueue = _sendQueue.then((_) async {
+      try {
+        final res = await action();
+        completer.complete(res);
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    }).catchError((e) {
+      debugPrint('[FileTransferService] _sendQueue error: $e');
+    });
+    return completer.future;
+  }
+
   // ── Android → Windows: send one or more files ─────────────────────────────
 
   Future<void> _sendFiles(
@@ -262,140 +294,232 @@ class FileTransferService {
       return;
     }
 
-    final pairing = await PairingStorageService.instance.getPairing();
-    if (pairing == null) throw Exception('Not paired');
+    return _enqueueSend(() async {
+      final pairing = await PairingStorageService.instance.getPairing();
+      if (pairing == null) throw Exception('Not paired');
 
-    await SocketService.instance.ensureConnected();
+      await SocketService.instance.ensureConnected();
 
-    final bool isContentUri = sourcePath.startsWith('content://');
-    final transferId = _uuid.v4();
+      final bool isContentUri = sourcePath.startsWith('content://');
+      final transferId = _uuid.v4();
 
-    String fileName;
-    String mimeType;
-    int totalBytes;
+      String fileName;
+      String mimeType;
+      int totalBytes;
 
-    void notifyProgress(FileSendProgress p) {
-      _sendProgress.value = p;
-      onSendProgress?.call(p);
+      void notifyProgress(FileSendProgress p) {
+        _sendProgress.value = p;
+        onSendProgress?.call(p);
+      }
+
+      if (isContentUri) {
+        // Content URI: use platform channel to open and stream
+        final token = _uuid.v4();
+        final meta = await _filesChannel.invokeMapMethod<String, dynamic>(
+          'openContentUri',
+          {'uri': sourcePath, 'token': token},
+        );
+        fileName = (meta?['fileName'] as String?) ?? 'file';
+        mimeType = (meta?['mimeType'] as String?) ?? 'application/octet-stream';
+        totalBytes = (meta?['totalBytes'] as int?) ?? -1;
+        final totalChunks = totalBytes > 0 ? (totalBytes / _chunkSize).ceil() : -1;
+
+        _emit({
+          'event': 'file-meta',
+          'transferId': transferId,
+          'fileName': fileName,
+          'mimeType': mimeType,
+          'totalBytes': totalBytes,
+          'totalChunks': totalChunks,
+          'transferType': 'file',
+        });
+
+        // Stream via platform channel with incremental hash
+        int index = 0;
+        int bytesSent = 0;
+        final digestSink = _DigestSink();
+        final hashSink = sha256.startChunkedConversion(digestSink);
+
+        while (true) {
+          final chunk = await _filesChannel.invokeMethod<Uint8List>(
+            'readChunk',
+            {'token': token},
+          );
+          if (chunk == null || chunk.isEmpty) break;
+          hashSink.add(chunk);
+          _emit({
+            'event': 'file-chunk',
+            'transferId': transferId,
+            'index': index,
+            'data': base64Encode(chunk),
+          });
+          bytesSent += chunk.length;
+          index++;
+          notifyProgress(FileSendProgress(
+            transferId: transferId,
+            fileName: fileName,
+            bytesSent: bytesSent,
+            totalBytes: totalBytes,
+            done: false,
+          ));
+        }
+        await _filesChannel.invokeMethod('closeInputStream', {'token': token});
+        hashSink.close();
+        final digest = digestSink.value?.toString() ?? '';
+        _emit({'event': 'file-complete', 'transferId': transferId, 'sha256': digest});
+        notifyProgress(FileSendProgress(
+          transferId: transferId,
+          fileName: fileName,
+          bytesSent: bytesSent,
+          totalBytes: totalBytes,
+          done: true,
+        ));
+      } else {
+        // Regular file path from file_picker — stream via dart:io
+        final file = File(sourcePath);
+        fileName = sourcePath.split(Platform.pathSeparator).last;
+        totalBytes = await file.length();
+        mimeType = 'application/octet-stream';
+        final totalChunks = (totalBytes / _chunkSize).ceil();
+
+        _emit({
+          'event': 'file-meta',
+          'transferId': transferId,
+          'fileName': fileName,
+          'mimeType': mimeType,
+          'totalBytes': totalBytes,
+          'totalChunks': totalChunks,
+          'transferType': 'file',
+        });
+
+        int index = 0;
+        int bytesSent = 0;
+        final digestSink = _DigestSink();
+        final hashSink = sha256.startChunkedConversion(digestSink);
+
+        final stream = file.openRead();
+        await for (final chunk in stream) {
+          final bytes = Uint8List.fromList(chunk);
+          hashSink.add(bytes);
+          _emit({
+            'event': 'file-chunk',
+            'transferId': transferId,
+            'index': index,
+            'data': base64Encode(bytes),
+          });
+          bytesSent += bytes.length;
+          index++;
+          notifyProgress(FileSendProgress(
+            transferId: transferId,
+            fileName: fileName,
+            bytesSent: bytesSent,
+            totalBytes: totalBytes,
+            done: false,
+          ));
+        }
+        hashSink.close();
+        final digest = digestSink.value?.toString() ?? '';
+        _emit({'event': 'file-complete', 'transferId': transferId, 'sha256': digest});
+        notifyProgress(FileSendProgress(
+          transferId: transferId,
+          fileName: fileName,
+          bytesSent: bytesSent,
+          totalBytes: totalBytes,
+          done: true,
+        ));
+      }
+    });
+  }
+
+  // ── Android → Windows: send clipboard image chunked ───────────────────────
+
+  Future<String> _sendClipboardImage(
+    Uint8List bytes, {
+    String mimeType = 'image/png',
+    String? transferId,
+  }) async {
+    if (!_isBackground) {
+      final id = transferId ?? _uuid.v4();
+      FlutterBackgroundService().invoke('send_clipboard_image', {
+        'bytes': base64Encode(bytes),
+        'mimeType': mimeType,
+        'transferId': id,
+      });
+      return id;
     }
 
-    if (isContentUri) {
-      // Content URI: use platform channel to open and stream
-      final token = _uuid.v4();
-      final meta = await _filesChannel.invokeMapMethod<String, dynamic>(
-        'openContentUri',
-        {'uri': sourcePath, 'token': token},
-      );
-      fileName = (meta?['fileName'] as String?) ?? 'file';
-      mimeType = (meta?['mimeType'] as String?) ?? 'application/octet-stream';
-      totalBytes = (meta?['totalBytes'] as int?) ?? -1;
-      final totalChunks = totalBytes > 0 ? (totalBytes / _chunkSize).ceil() : -1;
+    return _enqueueSend(() async {
+      final id = transferId ?? _uuid.v4();
+      final totalBytes = bytes.length;
+      final totalChunks = (totalBytes / _chunkSize).ceil();
 
+      await SocketService.instance.ensureConnected();
+
+      debugPrint('[FileTransferService] Streaming clipboard image ($totalBytes bytes, $totalChunks chunks, id=$id)');
+
+      // 1. Emit file-meta tagged as clipboard-image
       _emit({
         'event': 'file-meta',
-        'transferId': transferId,
-        'fileName': fileName,
+        'transferId': id,
+        'fileName': 'clipboard_${DateTime.now().millisecondsSinceEpoch}.png',
         'mimeType': mimeType,
         'totalBytes': totalBytes,
         'totalChunks': totalChunks,
+        'transferType': 'clipboard-image',
       });
 
-      // Stream via platform channel with incremental hash
-      int index = 0;
-      int bytesSent = 0;
+      // 2. Announce clipboard event
+      SocketService.instance.emit(BridgeMessage(
+        eventId: id,
+        type: MessageType.clipboard,
+        origin: Origin.android,
+        timestamp: DateTime.now().toUtc().toIso8601String(),
+        payload: {
+          'kind': 'image',
+          'transferId': id,
+          'mimeType': mimeType,
+        },
+      ));
+
+      // 3. Stream chunks incrementally
       final digestSink = _DigestSink();
       final hashSink = sha256.startChunkedConversion(digestSink);
+      int offset = 0;
+      int index = 0;
 
-      while (true) {
-        final chunk = await _filesChannel.invokeMethod<Uint8List>(
-          'readChunk',
-          {'token': token},
-        );
-        if (chunk == null || chunk.isEmpty) break;
+      while (offset < totalBytes) {
+        final end = (offset + _chunkSize < totalBytes) ? offset + _chunkSize : totalBytes;
+        final chunk = bytes.sublist(offset, end);
         hashSink.add(chunk);
+
         _emit({
           'event': 'file-chunk',
-          'transferId': transferId,
+          'transferId': id,
           'index': index,
           'data': base64Encode(chunk),
         });
-        bytesSent += chunk.length;
-        index++;
-        notifyProgress(FileSendProgress(
-          transferId: transferId,
-          fileName: fileName,
-          bytesSent: bytesSent,
-          totalBytes: totalBytes,
-          done: false,
-        ));
-      }
-      await _filesChannel.invokeMethod('closeInputStream', {'token': token});
-      hashSink.close();
-      final digest = digestSink.value?.toString() ?? '';
-      _emit({'event': 'file-complete', 'transferId': transferId, 'sha256': digest});
-      notifyProgress(FileSendProgress(
-        transferId: transferId,
-        fileName: fileName,
-        bytesSent: bytesSent,
-        totalBytes: totalBytes,
-        done: true,
-      ));
-    } else {
-      // Regular file path from file_picker — stream via dart:io
-      final file = File(sourcePath);
-      fileName = sourcePath.split(Platform.pathSeparator).last;
-      totalBytes = await file.length();
-      mimeType = 'application/octet-stream';
-      final totalChunks = (totalBytes / _chunkSize).ceil();
 
+        offset = end;
+        index++;
+        await Future.delayed(const Duration(milliseconds: 5));
+      }
+
+      hashSink.close();
+      final sha = digestSink.value?.toString() ?? '';
+
+      // 4. Emit file-complete
       _emit({
-        'event': 'file-meta',
-        'transferId': transferId,
-        'fileName': fileName,
-        'mimeType': mimeType,
-        'totalBytes': totalBytes,
-        'totalChunks': totalChunks,
+        'event': 'file-complete',
+        'transferId': id,
+        'sha256': sha,
       });
 
-      int index = 0;
-      int bytesSent = 0;
-      final digestSink = _DigestSink();
-      final hashSink = sha256.startChunkedConversion(digestSink);
-
-      final stream = file.openRead();
-      await for (final chunk in stream) {
-        final bytes = Uint8List.fromList(chunk);
-        hashSink.add(bytes);
-        _emit({
-          'event': 'file-chunk',
-          'transferId': transferId,
-          'index': index,
-          'data': base64Encode(bytes),
-        });
-        bytesSent += bytes.length;
-        index++;
-        notifyProgress(FileSendProgress(
-          transferId: transferId,
-          fileName: fileName,
-          bytesSent: bytesSent,
-          totalBytes: totalBytes,
-          done: false,
-        ));
-      }
-      hashSink.close();
-      final digest = digestSink.value?.toString() ?? '';
-      _emit({'event': 'file-complete', 'transferId': transferId, 'sha256': digest});
-      notifyProgress(FileSendProgress(
-        transferId: transferId,
-        fileName: fileName,
-        bytesSent: bytesSent,
-        totalBytes: totalBytes,
-        done: true,
-      ));
-    }
+      debugPrint('[FileTransferService] Clipboard image stream finished (SHA: $sha)');
+      return id;
+    });
   }
 
-  // ── Windows → Android: receive a file ─────────────────────────────────────
+  // ── Windows → Android: receive a file / clipboard image ───────────────────
 
   void _handleIncoming(Map<String, dynamic> payload) {
     final event = payload['event'] as String?;
@@ -418,40 +542,59 @@ class FileTransferService {
     final mimeType = p['mimeType'] as String? ?? 'application/octet-stream';
     final totalChunks = p['totalChunks'] as int? ?? -1;
     final totalBytes = p['totalBytes'] as int? ?? -1;
+    final transferType = p['transferType'] as String? ?? 'file';
+    final isClipboardImage = transferType == 'clipboard-image';
     final token = _uuid.v4();
 
-    debugPrint('[FileTransferService] Receiving "$fileName" ($totalBytes bytes, $totalChunks chunks)...');
+    debugPrint('[FileTransferService] Receiving "$fileName" (type=$transferType, $totalBytes bytes, $totalChunks chunks)...');
+
+    String? destPath;
+    IOSink? fileSink;
+    if (isClipboardImage) {
+      final cacheDir = await SystemChannel.getClipboardCacheDir();
+      final baseDir = cacheDir ?? Directory.systemTemp.path;
+      destPath = '$baseDir/clip_$transferId.png';
+      final file = File(destPath);
+      fileSink = file.openWrite();
+    }
 
     final state = _ReceiveState(
       token: token,
       fileName: fileName,
       totalChunks: totalChunks,
       totalBytes: totalBytes,
+      isClipboardImage: isClipboardImage,
+      destPath: destPath,
     );
+    state.fileSink = fileSink;
 
     // CRITICAL: Register state synchronously before ANY await, so chunks that arrive immediately are not lost
     _receives[transferId] = state;
 
-    final prog = FileReceiveProgress(
-      transferId: transferId,
-      fileName: fileName,
-      bytesReceived: 0,
-      totalBytes: totalBytes,
-      done: false,
-    );
-    _receiveProgress.value = prog;
-    _onReceiveProgress?.call(prog);
-
-    try {
-      await _filesChannel.invokeMethod('createDownload', {
-        'fileName': fileName,
-        'mimeType': mimeType,
-        'token': token,
-      });
+    if (isClipboardImage) {
       state.initCompleter.complete(true);
-    } catch (e) {
-      debugPrint('[FileTransferService] createDownload error: $e');
-      state.initCompleter.complete(false);
+    } else {
+      final prog = FileReceiveProgress(
+        transferId: transferId,
+        fileName: fileName,
+        bytesReceived: 0,
+        totalBytes: totalBytes,
+        done: false,
+      );
+      _receiveProgress.value = prog;
+      _onReceiveProgress?.call(prog);
+
+      try {
+        await _filesChannel.invokeMethod('createDownload', {
+          'fileName': fileName,
+          'mimeType': mimeType,
+          'token': token,
+        });
+        state.initCompleter.complete(true);
+      } catch (e) {
+        debugPrint('[FileTransferService] createDownload error: $e');
+        state.initCompleter.complete(false);
+      }
     }
   }
 
@@ -468,26 +611,32 @@ class FileTransferService {
     state.bytesReceived += rawBytes.length;
     state.chunksReceived++;
 
-    final prog = FileReceiveProgress(
-      transferId: transferId,
-      fileName: state.fileName,
-      bytesReceived: state.bytesReceived,
-      totalBytes: state.totalBytes,
-      done: false,
-    );
-    _receiveProgress.value = prog;
-    _onReceiveProgress?.call(prog);
+    if (!state.isClipboardImage) {
+      final prog = FileReceiveProgress(
+        transferId: transferId,
+        fileName: state.fileName,
+        bytesReceived: state.bytesReceived,
+        totalBytes: state.totalBytes,
+        done: false,
+      );
+      _receiveProgress.value = prog;
+      _onReceiveProgress?.call(prog);
+    }
 
     state.queueWrite(() async {
       final ready = await state.initCompleter.future;
       if (!ready) return;
-      try {
-        await _filesChannel.invokeMethod('writeChunk', {
-          'token': state.token,
-          'data': rawBytes,
-        });
-      } catch (e) {
-        debugPrint('[FileTransferService] writeChunk error: $e');
+      if (state.isClipboardImage) {
+        state.fileSink?.add(rawBytes);
+      } else {
+        try {
+          await _filesChannel.invokeMethod('writeChunk', {
+            'token': state.token,
+            'data': rawBytes,
+          });
+        } catch (e) {
+          debugPrint('[FileTransferService] writeChunk error: $e');
+        }
       }
     });
   }
@@ -498,30 +647,57 @@ class FileTransferService {
     final state = _receives[transferId];
     if (state == null) return;
 
-    // Ensure createDownload and all queued writeChunk calls have completed
+    // Ensure createDownload/fileSink and all queued writeChunk calls have completed
     final ready = await state.initCompleter.future;
     await state.waitForWrites();
+    if (state.isClipboardImage && state.fileSink != null) {
+      await state.fileSink!.flush();
+      await state.fileSink!.close();
+    }
 
     _receives.remove(transferId);
 
     if (!ready) {
       debugPrint('[FileTransferService] Download init failed for "${state.fileName}"');
-      final prog = FileReceiveProgress(
-        transferId: transferId,
-        fileName: state.fileName,
-        bytesReceived: state.bytesReceived,
-        totalBytes: state.totalBytes,
-        done: true,
-        error: true,
-      );
-      _receiveProgress.value = prog;
-      _onReceiveProgress?.call(prog);
+      if (!state.isClipboardImage) {
+        final prog = FileReceiveProgress(
+          transferId: transferId,
+          fileName: state.fileName,
+          bytesReceived: state.bytesReceived,
+          totalBytes: state.totalBytes,
+          done: true,
+          error: true,
+        );
+        _receiveProgress.value = prog;
+        _onReceiveProgress?.call(prog);
+      }
       return;
     }
 
     final computed = state.finalizeDigest();
 
     if (computed == expected) {
+      if (state.isClipboardImage) {
+        debugPrint('[FileTransferService] Clipboard image download complete for "${state.fileName}" (SHA-256 verified ✓)');
+        if (state.destPath != null) {
+          await SystemChannel.setClipboardImage(state.destPath!);
+          ClipboardService.instance.markImageAsSynced(state.destPath!);
+          await ClipboardHistoryService.instance.addImageEntry(
+            imagePath: state.destPath!,
+            origin: 'windows',
+            id: transferId,
+          );
+          if (_isBackground) {
+            FlutterBackgroundService().invoke('clipboard_image_received', {
+              'transferId': transferId,
+              'imagePath': state.destPath,
+              'origin': 'windows',
+            });
+          }
+        }
+        return;
+      }
+
       debugPrint('[FileTransferService] Download complete for "${state.fileName}" (SHA-256 verified ✓)');
       try {
         await _filesChannel.invokeMethod('finalizeDownload', {'token': state.token});
@@ -542,21 +718,29 @@ class FileTransferService {
       _onFileReceived?.call(state.fileName, 'Windows PC');
     } else {
       debugPrint('[FileTransferService] Checksum mismatch for "${state.fileName}"! Expected: $expected, Computed: $computed. Deleting.');
-      try {
-        await _filesChannel.invokeMethod('deleteDownload', {'token': state.token});
-      } catch (e) {
-        debugPrint('[FileTransferService] deleteDownload error: $e');
+      if (state.isClipboardImage) {
+        if (state.destPath != null) {
+          try {
+            File(state.destPath!).deleteSync();
+          } catch (_) {}
+        }
+      } else {
+        try {
+          await _filesChannel.invokeMethod('deleteDownload', {'token': state.token});
+        } catch (e) {
+          debugPrint('[FileTransferService] deleteDownload error: $e');
+        }
+        final prog = FileReceiveProgress(
+          transferId: transferId,
+          fileName: state.fileName,
+          bytesReceived: state.bytesReceived,
+          totalBytes: state.totalBytes,
+          done: true,
+          error: true,
+        );
+        _receiveProgress.value = prog;
+        _onReceiveProgress?.call(prog);
       }
-      final prog = FileReceiveProgress(
-        transferId: transferId,
-        fileName: state.fileName,
-        bytesReceived: state.bytesReceived,
-        totalBytes: state.totalBytes,
-        done: true,
-        error: true,
-      );
-      _receiveProgress.value = prog;
-      _onReceiveProgress?.call(prog);
     }
   }
 

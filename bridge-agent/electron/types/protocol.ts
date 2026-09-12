@@ -9,13 +9,22 @@ export interface BridgeMessage<T = unknown> {
   payload: T
 }
 
+export type ClipboardContentType = 'text' | 'url' | 'otp' | 'email' | 'phone' | 'image'
+
 export interface ClipboardPayload {
-  text: string
+  kind?: 'text' | 'image'
+  text?: string
+  transferId?: string
+  mimeType?: string
 }
 
 export interface ClipboardHistoryItem {
   id: string
-  text: string
+  kind: 'text' | 'image'
+  contentType: ClipboardContentType
+  text?: string
+  imageThumbnail?: string  // base64 Data URL (e.g. data:image/png;base64,...) for UI preview
+  imagePath?: string       // absolute local path to cached file on disk
   timestamp: string
   origin: Origin
 }
@@ -29,6 +38,7 @@ export interface FileMetaPayload {
   mimeType: string
   totalBytes: number
   totalChunks: number
+  transferType?: 'file' | 'clipboard-image'
 }
 
 export interface FileChunkPayload {

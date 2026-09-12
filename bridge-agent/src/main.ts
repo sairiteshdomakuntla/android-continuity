@@ -34,7 +34,11 @@ interface StatusResponse {
 
 interface ClipboardHistoryItem {
   id: string
-  text: string
+  kind: 'text' | 'image'
+  contentType: 'text' | 'url' | 'otp' | 'email' | 'phone' | 'image'
+  text?: string
+  imageThumbnail?: string
+  imagePath?: string
   timestamp: string
   origin: 'android' | 'windows'
 }
@@ -303,10 +307,15 @@ function render(state: StatusResponse) {
                   ${item.origin === 'android' ? '📱 Android' : '💻 Windows'}
                 </span>
                 <div class="history-time-wrap">
+                  ${item.contentType ? `<span class="history-content-type type-${item.contentType}">${item.contentType.toUpperCase()}</span>` : ''}
                   <span class="history-time">${getRelativeTime(item.timestamp)}</span>
                 </div>
               </div>
-              <div class="history-text">${escapeHtml(item.text)}</div>
+              ${
+                item.kind === 'image' && item.imageThumbnail
+                  ? `<div class="history-image-container"><img class="history-thumbnail" src="${item.imageThumbnail}" alt="Clipboard Image" /></div>`
+                  : `<div class="history-text">${escapeHtml(item.text || '')}</div>`
+              }
             </div>
           `
                 )
@@ -410,7 +419,7 @@ function render(state: StatusResponse) {
       if (!item) return
 
       try {
-        await window.ipcRenderer.invoke('copy-history-item', item.text)
+        await window.ipcRenderer.invoke('copy-history-item', item.id)
         const timeWrap = el.querySelector('.history-time-wrap')
         if (timeWrap) {
           const prevHtml = timeWrap.innerHTML

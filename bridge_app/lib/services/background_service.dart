@@ -105,6 +105,16 @@ class BackgroundService {
     service.invoke('send_clipboard', {'text': text});
   }
 
+  /// Sends a clipboard image to Windows through the background socket.
+  static void sendClipboardImage(Uint8List bytes, {String mimeType = 'image/png', String? transferId}) {
+    final service = FlutterBackgroundService();
+    service.invoke('send_clipboard_image', {
+      'bytes': base64Encode(bytes),
+      'mimeType': mimeType,
+      'transferId': transferId,
+    });
+  }
+
   /// Requests the background service to stream files to Windows.
   static void sendFiles(List<String> paths) {
     final service = FlutterBackgroundService();
@@ -220,6 +230,13 @@ void onStart(ServiceInstance service) async {
 
   // Incoming clipboard from Windows -> update Android clipboard & notify UI isolate
   SocketService.instance.onClipboardMessage((msg) async {
+    final kind = msg.payload['kind'] as String? ?? 'text';
+    if (kind == 'image') {
+      dedupe.add(msg.eventId);
+      debugPrint('[BackgroundService] [RECV] Clipboard image announcement: eventId=${msg.eventId}');
+      return;
+    }
+
     final text = msg.payload['text'] as String?;
     final preview = text != null && text.length > 40 ? '${text.substring(0, 40)}…' : (text ?? '');
     debugPrint('[BackgroundService] [RECV] Received clipboard message: eventId=${msg.eventId}, timestamp=${msg.timestamp}, len=${text?.length ?? 0}');
@@ -341,6 +358,18 @@ void onStart(ServiceInstance service) async {
     final text = data['text'] as String?;
     if (text != null && text.isNotEmpty) {
       SocketService.instance.emitClipboardMessage(text);
+    }
+  });
+
+  // Cross-isolate UI command: Send clipboard image to Windows
+  service.on('send_clipboard_image').listen((data) async {
+    if (data == null) return;
+    final b64 = data['bytes'] as String?;
+    final mimeType = data['mimeType'] as String? ?? 'image/png';
+    final transferId = data['transferId'] as String?;
+    if (b64 != null && b64.isNotEmpty) {
+      final bytes = Uint8List.fromList(base64Decode(b64));
+      await FileTransferService.sendClipboardImage(bytes, mimeType: mimeType, transferId: transferId);
     }
   });
 

@@ -601,6 +601,23 @@ class _ClipboardHistoryCard extends StatelessWidget {
     return '${diff.inDays}d ago';
   }
 
+  Color _badgeColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'url':
+        return const Color(0xFF38BDF8);
+      case 'otp':
+        return const Color(0xFFFB923C);
+      case 'email':
+        return const Color(0xFFC084FC);
+      case 'phone':
+        return const Color(0xFF4ADE80);
+      case 'image':
+        return const Color(0xFFF472B6);
+      default:
+        return const Color(0xFF94A3B8);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -654,7 +671,7 @@ class _ClipboardHistoryCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   child: Center(
                     child: Text(
-                      'No history yet. Copy on Windows or Android to sync.',
+                      'No history yet. Copy text or image to sync.',
                       style: TextStyle(
                         fontSize: 12,
                         color: colorScheme.onSurfaceVariant.withAlpha(150),
@@ -679,12 +696,14 @@ class _ClipboardHistoryCard extends StatelessWidget {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(10),
                         onTap: () async {
-                          await ClipboardHistoryService.instance.copyLocally(item.text);
+                          await ClipboardHistoryService.instance.copyLocally(item);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Copied to clipboard! Ready to paste locally.'),
-                                duration: Duration(seconds: 2),
+                              SnackBar(
+                                content: Text(item.kind == 'image'
+                                    ? 'Image copied to clipboard! Ready to paste.'
+                                    : 'Text copied to clipboard! Ready to paste.'),
+                                duration: const Duration(seconds: 2),
                               ),
                             );
                           }
@@ -714,6 +733,22 @@ class _ClipboardHistoryCard extends StatelessWidget {
                                       color: isWindows ? const Color(0xFF38BDF8) : const Color(0xFF34D399),
                                     ),
                                   ),
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: _badgeColor(item.contentType).withAlpha(35),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      item.contentType.toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                        color: _badgeColor(item.contentType),
+                                      ),
+                                    ),
+                                  ),
                                   const Spacer(),
                                   Text(
                                     _formatRelativeTime(item.timestamp),
@@ -726,17 +761,42 @@ class _ClipboardHistoryCard extends StatelessWidget {
                                   Icon(Icons.copy_rounded, size: 12, color: colorScheme.primary.withAlpha(160)),
                                 ],
                               ),
-                              const SizedBox(height: 6),
-                              Text(
-                                item.text,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  height: 1.3,
-                                  color: colorScheme.onSurface,
+                              if (item.kind == 'image' &&
+                                  item.imagePath != null &&
+                                  File(item.imagePath!).existsSync()) ...[
+                                const SizedBox(height: 8),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    constraints: const BoxConstraints(maxHeight: 120, maxWidth: 180),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black26,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: colorScheme.outlineVariant.withAlpha(60)),
+                                    ),
+                                    child: Image.file(
+                                      File(item.imagePath!),
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (context, error, stackTrace) => const Padding(
+                                        padding: EdgeInsets.all(12),
+                                        child: Icon(Icons.broken_image_rounded, size: 32),
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
+                              ] else ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  item.text ?? '',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    height: 1.3,
+                                    color: colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),

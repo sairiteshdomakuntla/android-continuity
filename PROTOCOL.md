@@ -101,8 +101,9 @@ Inside the decrypted plaintext, messages follow the standard envelope schema:
 
 ### `clipboard`
 
-Sent when clipboard text is detected and needs to be synced.
+Sent when clipboard text or image is detected and needs to be synced.
 
+**Text Clipboard:**
 ```json
 {
   "eventId": "a1b2c3d4-...",
@@ -110,16 +111,37 @@ Sent when clipboard text is detected and needs to be synced.
   "origin": "android",
   "timestamp": "2026-09-10T11:00:00.000Z",
   "payload": {
+    "kind": "text",
     "text": "Hello from Android clipboard"
   }
 }
 ```
 
+**Image Clipboard Announcement:**
+```json
+{
+  "eventId": "b2c3d4e5-...",
+  "type": "clipboard",
+  "origin": "windows",
+  "timestamp": "2026-09-10T11:00:00.000Z",
+  "payload": {
+    "kind": "image",
+    "transferId": "b2c3d4e5-...",
+    "mimeType": "image/png"
+  }
+}
+```
+
+Image payloads are streamed chunk-by-chunk using the chunked `file` transport tagged with `"transferType": "clipboard-image"` (64KB chunks + incremental SHA-256 validation).
+
 **Payload fields:**
 
 | Field | Type | Description |
 |---|---|---|
-| `text` | `string` | Plain text clipboard content. |
+| `kind` | `'text' \| 'image'` | Type of clipboard content (defaults to `'text'`). |
+| `text` | `string?` | Plain text clipboard content (when `kind === 'text'`). |
+| `transferId` | `string?` | Matching chunked transfer UUID (when `kind === 'image'`). |
+| `mimeType` | `string?` | Image MIME type, e.g. `'image/png'`. |
 
 ### `ping`
 

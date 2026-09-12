@@ -15,8 +15,10 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class SystemChannelHandler(
     private val context: Context,
@@ -92,6 +94,59 @@ class SystemChannelHandler(
                 }
             }
 
+            "getClipboard" -> {
+                try {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    if (clipboard == null) {
+                        result.success(null)
+                        return
+                    }
+                    val clip = clipboard.primaryClip
+                    if (clip == null || clip.itemCount == 0) {
+                        result.success(null)
+                        return
+                    }
+                    val item = clip.getItemAt(0)
+                    val uri = item.uri
+                    val mimeType = if (uri != null) context.contentResolver.getType(uri) else null
+                    val isImage = (mimeType?.startsWith("image/") == true) || (clip.description?.hasMimeType("image/*") == true)
+
+                    if (isImage && uri != null) {
+                        try {
+                            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            if (bytes != null && bytes.isNotEmpty()) {
+                                val imagesDir = File(context.cacheDir, "clipboard_images").apply { mkdirs() }
+                                val cacheFile = File(imagesDir, "clip_${System.currentTimeMillis()}.png")
+                                cacheFile.writeBytes(bytes)
+                                result.success(mapOf(
+                                    "type" to "image",
+                                    "mimeType" to (mimeType ?: "image/png"),
+                                    "uri" to uri.toString(),
+                                    "path" to cacheFile.absolutePath,
+                                    "bytes" to bytes
+                                ))
+                                return
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.w("SystemChannelHandler", "Failed to read clipboard image uri $uri", e)
+                        }
+                    }
+
+                    val text = item.text?.toString() ?: item.coerceToText(context)?.toString()
+                    if (!text.isNullOrEmpty()) {
+                        result.success(mapOf(
+                            "type" to "text",
+                            "text" to text
+                        ))
+                        return
+                    }
+
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("CLIPBOARD_READ_ERROR", e.message, null)
+                }
+            }
+
             "setClipboard" -> {
                 val text = call.argument<String>("text") ?: ""
                 try {
@@ -111,6 +166,48 @@ class SystemChannelHandler(
                     }
                 } catch (e: Exception) {
                     result.error("CLIPBOARD_EXCEPTION", e.message, null)
+                }
+            }
+
+            "setClipboardImage" -> {
+                val path = call.argument<String>("path")
+                if (path.isNullOrEmpty()) {
+                    result.error("ARG", "path required", null)
+                    return
+                }
+                try {
+                    val file = File(path)
+                    if (!file.exists()) {
+                        result.error("FILE_NOT_FOUND", "Image file does not exist: $path", null)
+                        return
+                    }
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    if (clipboard != null) {
+                        Handler(Looper.getMainLooper()).post {
+                            try {
+                                val authority = "${context.packageName}.fileprovider"
+                                val contentUri = FileProvider.getUriForFile(context, authority, file)
+                                val clip = ClipData.newUri(context.contentResolver, "Bridge Clipboard Image", contentUri)
+                                clipboard.setPrimaryClip(clip)
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("CLIPBOARD_WRITE_ERROR", e.message, null)
+                            }
+                        }
+                    } else {
+                        result.error("NO_CLIPBOARD_SERVICE", "ClipboardManager unavailable", null)
+                    }
+                } catch (e: Exception) {
+                    result.error("CLIPBOARD_EXCEPTION", e.message, null)
+                }
+            }
+
+            "getClipboardCacheDir" -> {
+                try {
+                    val imagesDir = File(context.cacheDir, "clipboard_images").apply { mkdirs() }
+                    result.success(imagesDir.absolutePath)
+                } catch (e: Exception) {
+                    result.error("IO", e.message, null)
                 }
             }
 

@@ -467,6 +467,67 @@ button.danger:hover {
   color: #38bdf8;
 }
 
+.history-time-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-content-type {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.history-content-type.type-url {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+
+.history-content-type.type-otp {
+  background: rgba(251, 146, 60, 0.2);
+  color: #fb923c;
+}
+
+.history-content-type.type-email {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+}
+
+.history-content-type.type-phone {
+  background: rgba(74, 222, 128, 0.2);
+  color: #4ade80;
+}
+
+.history-content-type.type-text {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
+}
+
+.history-content-type.type-image {
+  background: rgba(244, 114, 182, 0.2);
+  color: #f472b6;
+}
+
+.history-image-container {
+  margin-top: 6px;
+  border-radius: 6px;
+  overflow: hidden;
+  display: inline-flex;
+  max-width: 100%;
+  background: #090d16;
+  border: 1px solid #1e293b;
+}
+
+.history-thumbnail {
+  max-height: 80px;
+  max-width: 160px;
+  object-fit: contain;
+  display: block;
+}
+
 .history-time {
   color: #64748b;
 }

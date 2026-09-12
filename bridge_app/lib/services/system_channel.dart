@@ -54,6 +54,20 @@ class SystemChannel {
     }
   }
 
+  /// Reads the native Android primary clip.
+  /// Returns a Map with {"type": "text", "text": "..."} or
+  /// {"type": "image", "uri": "...", "mimeType": "...", "bytes": Uint8List}, or null.
+  static Future<Map<String, dynamic>?> getClipboard() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>('getClipboard');
+      return res;
+    } catch (e) {
+      debugPrint('[SystemChannel] getClipboard error: $e');
+      return null;
+    }
+  }
+
   /// Sets native Android clipboard content directly via ClipboardManager.setPrimaryClip().
   /// Safe to invoke from headless background service isolates without an active Activity.
   static Future<bool> setClipboard(String text) async {
@@ -64,6 +78,29 @@ class SystemChannel {
     } catch (e) {
       debugPrint('[SystemChannel] setClipboard error: $e');
       return false;
+    }
+  }
+
+  /// Writes an image file from disk to the Android clipboard via FileProvider URI.
+  static Future<bool> setClipboardImage(String filePath) async {
+    if (!Platform.isAndroid) return true;
+    try {
+      final res = await _channel.invokeMethod<bool>('setClipboardImage', {'path': filePath});
+      return res ?? false;
+    } catch (e) {
+      debugPrint('[SystemChannel] setClipboardImage error: $e');
+      return false;
+    }
+  }
+
+  /// Returns the absolute path of the clipboard_images cache directory on Android.
+  static Future<String?> getClipboardCacheDir() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      return await _channel.invokeMethod<String>('getClipboardCacheDir');
+    } catch (e) {
+      debugPrint('[SystemChannel] getClipboardCacheDir error: $e');
+      return null;
     }
   }
 }
