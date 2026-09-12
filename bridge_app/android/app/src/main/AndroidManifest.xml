@@ -105,6 +105,31 @@
             </intent-filter>
         </activity>
 
+        <!-- Home-screen clipboard widget -->
+        <receiver
+            android:name=".BridgeClipboardWidgetProvider"
+            android:exported="false"
+            android:label="Bridge Clipboard">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/bridge_widget_info" />
+        </receiver>
+
+        <!-- Widget tap-to-copy trampoline: native copy, no Flutter engine.
+             Exported because widget PendingIntents are sent by the host. -->
+        <activity
+            android:name=".WidgetCopyActivity"
+            android:exported="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Bridge.Trampoline"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" />
+
         <!-- FileProvider for sharing cached clipboard images with other apps -->
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'theme/bridge_icons.dart';
 import 'services/socket_service.dart';
 import 'services/clipboard_service.dart';
 import 'services/camera_service.dart';
@@ -9,10 +10,12 @@ import 'services/pairing_storage_service.dart';
 import 'services/background_service.dart';
 import 'services/system_channel.dart';
 import 'services/clipboard_history_service.dart';
+import 'services/notification_history_service.dart';
 import 'services/notifications_channel.dart';
 import 'screens/scan_pair_screen.dart';
 import 'screens/share_progress_screen.dart';
 import 'screens/camera_screen.dart';
+import 'theme/bridge_theme.dart';
 
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -33,6 +36,7 @@ void main() async {
   // 3. Init UI proxy services
   SocketService.instance.initUiProxy();
   ClipboardService.instance.init();
+  NotificationHistoryService.instance.init();
   FileTransferService.init(isBackgroundService: false);
   CameraService.instance.init();
 
@@ -83,13 +87,7 @@ class ShareApp extends StatelessWidget {
     return MaterialApp(
       title: 'Bridge Share',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6366F1),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: BridgeTheme.light(),
       home: const Scaffold(
         backgroundColor: Colors.transparent,
         body: ShareProgressScreen(),
@@ -110,13 +108,7 @@ class BridgeApp extends StatelessWidget {
       navigatorKey: rootNavigatorKey,
       title: 'Bridge',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6366F1),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: BridgeTheme.light(),
       home: isPaired ? const BridgeHome() : const ScanPairScreen(),
     );
   }
@@ -133,6 +125,7 @@ class BridgeHome extends StatefulWidget {
 class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
   static bool _hasPromptedBattery = false;
   bool _notificationAccessGranted = false;
+  bool _showNotifications = true;
 
   @override
   void initState() {
@@ -197,7 +190,8 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
       builder: (ctx) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.battery_charging_full_rounded, color: Color(0xFF6366F1)),
+            BridgeIcon('batteryCharging',
+                color: BridgeColors.clay, size: 22),
             SizedBox(width: 10),
             Expanded(child: Text('Keep Bridge Alive')),
           ],
@@ -208,12 +202,12 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
           children: [
             Text(
               'Allow Bridge to ignore battery optimizations so you can receive files and sync clipboard even when your phone is idle or locked.',
-              style: TextStyle(fontSize: 14, height: 1.4),
+              style: TextStyle(fontSize: 14, height: 1.5),
             ),
             SizedBox(height: 12),
             Text(
               'Note: On certain OEM devices (Xiaomi, Oppo, Vivo, Samsung), you may also need to allow "Autostart" in device app settings.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(fontSize: 12, color: BridgeColors.muted),
             ),
           ],
         ),
@@ -249,7 +243,6 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
             child: const Text('Unpair'),
           ),
         ],
@@ -269,315 +262,281 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _syncNow() async {
+    final result = await ClipboardService.instance.syncNow(force: true);
+    if (!mounted) return;
+    String msg;
+    switch (result) {
+      case SyncDirectionResult.pulledFromWindows:
+        msg = 'Pulled latest clipboard from Windows!';
+        break;
+      case SyncDirectionResult.sentToWindows:
+        msg = 'Sent clipboard to Windows!';
+        break;
+      case SyncDirectionResult.upToDate:
+        msg = SocketService.instance.isConnected
+            ? 'Clipboard is up to date with Windows'
+            : 'Clipboard synchronized via Background Service';
+        break;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _sendFile() async {
+    final picked = await FilePicker.pickFiles(type: FileType.any);
+    if (picked.isEmpty) return;
+    final uris = picked.map((f) => f.path).whereType<String>().toList();
+    if (!mounted) return;
+    try {
+      await FileTransferService.sendFiles(uris);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Send failed: $e')),
+        );
+      }
+    }
+  }
+
+  void _openWebcam(bool isConnected) {
+    if (!isConnected) return;
+    final url = SocketService.instance.currentUrl ?? '';
+    final pcName = url.isNotEmpty
+        ? url.replaceFirst(RegExp(r'https?://'), '').split(':').first
+        : 'Windows PC';
+    debugPrint('[BridgeHome] Tapped "Use as Webcam" — pushing CameraScreen(pcName: $pcName)');
+    Navigator.of(context)
+        .push(
+      MaterialPageRoute(
+        builder: (_) => CameraScreen(pcName: pcName),
+      ),
+    )
+        .then((_) {
+      debugPrint('[BridgeHome] Returned from CameraScreen route to BridgeHome');
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     debugPrint('[BridgeHome] build() executed — rendering home UI');
-    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      backgroundColor: colorScheme.surface,
+      backgroundColor: BridgeColors.linen,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ── Header ─────────────────────────────────────────────────
+              // ── Header ─────────────────────────────────────────────
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Icon(Icons.swap_horiz_rounded,
-                          color: colorScheme.primary, size: 32),
-                      const SizedBox(width: 12),
-                      Text(
-                        'Bridge',
-                        style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: colorScheme.onSurface,
-                            ),
-                      ),
-                    ],
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      color: BridgeColors.clay,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: BridgeIcon('sprout',
+                        color: BridgeColors.brandCream, size: 17),
                   ),
+                  const SizedBox(width: 10),
+                  const Text('Bridge', style: BridgeText.brand),
+                  const Spacer(),
                   IconButton(
-                    icon: const Icon(Icons.qr_code_rounded),
-                    tooltip: 'Pair / Unpair',
-                    onPressed: _unpair,
+                    icon: BridgeIcon('qrCode', size: 20),
+                    color: BridgeColors.inkSoft,
+                    tooltip: 'Pair new device',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const ScanPairScreen()),
+                      );
+                    },
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 8),
 
-              // ── Connection status card ──────────────────────────────────
+              // ── Status hero ────────────────────────────────────────
               ValueListenableBuilder<bool>(
                 valueListenable: SocketService.instance.connected,
                 builder: (context, isConnected, _) {
-                  return _StatusCard(
+                  return _StatusHero(
                     connected: isConnected,
-                    serverUrl: SocketService.instance.currentUrl ?? 'Connecting to PC...',
-                    onScanAgain: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const ScanPairScreen()),
-                      );
+                    serverUrl:
+                        SocketService.instance.currentUrl ?? 'Not connected',
+                    onReconnect: () {
+                      BackgroundService.start();
+                      BackgroundService.restartSocket();
                     },
                   );
                 },
               ),
               const SizedBox(height: 16),
 
-              // ── Security & Background Service Badges ───────────────────
-              Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.greenAccent.withAlpha(20),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.greenAccent.withAlpha(60)),
+              // ── Quick actions (primary / secondary / ghost / danger)
+              ValueListenableBuilder<bool>(
+                valueListenable: SocketService.instance.connected,
+                builder: (context, isConnected, _) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: () => _openWebcam(isConnected),
+                        icon: const BridgeIcon('camera', size: 17),
+                        label: const Text('Use as Webcam'),
                       ),
-                      child: const Row(
+                      const SizedBox(height: 10),
+                      Row(
                         children: [
-                          Icon(Icons.lock_outline_rounded, size: 14, color: Colors.greenAccent),
-                          SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              'AES-256-GCM',
-                              style: TextStyle(
-                                color: Colors.greenAccent,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _sendFile,
+                              icon: BridgeIcon('fileUp', size: 16),
+                              label: const Text('Send File'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _syncNow,
+                              icon:
+                                  BridgeIcon('refreshCw', size: 16),
+                              label: const Text('Sync Now'),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF6366F1).withAlpha(20),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFF6366F1).withAlpha(60)),
-                      ),
-                      child: const Row(
+                      const SizedBox(height: 2),
+                      Row(
                         children: [
-                          Icon(Icons.notifications_active_outlined, size: 14, color: Color(0xFF818CF8)),
-                          SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              'Background Sync',
-                              style: TextStyle(
-                                color: Color(0xFF818CF8),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                          Expanded(
+                            child: TextButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const ScanPairScreen()),
+                                );
+                              },
+                              icon: BridgeIcon('plus', size: 16),
+                              label: const Text('Pair New'),
+                            ),
+                          ),
+                          Expanded(
+                            child: TextButton(
+                              onPressed: _unpair,
+                              style: TextButton.styleFrom(
+                                foregroundColor: BridgeColors.muted,
                               ),
-                              overflow: TextOverflow.ellipsis,
+                              child: const Text('Unpair'),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ),
-                ],
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 12),
 
-              // ── Notification Access Banner (if not granted) ─────────────
+              // ── Notification access banner (if not granted) ─────────
               if (!_notificationAccessGranted) ...[
                 Container(
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF6366F1).withAlpha(22),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFF6366F1).withAlpha(80)),
+                    color: BridgeColors.claySoft,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: BridgeColors.sand),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.notifications_active_rounded,
-                          color: Color(0xFF818CF8), size: 24),
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: BridgeColors.card,
+                          borderRadius: BorderRadius.circular(13),
+                          border: Border.all(color: BridgeColors.sand),
+                        ),
+                        child: BridgeIcon('bell',
+                            color: BridgeColors.clayInk, size: 20),
+                      ),
                       const SizedBox(width: 12),
-                      Expanded(
+                      const Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'Sync Phone Notifications',
                               style: TextStyle(
-                                fontSize: 13,
+                                fontSize: 14,
                                 fontWeight: FontWeight.w700,
-                                color: Colors.white,
+                                fontFamily: 'Fraunces',
+                                color: BridgeColors.ink,
                               ),
                             ),
-                            const SizedBox(height: 2),
+                            SizedBox(height: 2),
                             Text(
-                              'Show alerts & reply directly from Windows PC.',
+                              'Show alerts & reply directly from your PC.',
                               style: TextStyle(
-                                fontSize: 11,
-                                color: colorScheme.onSurfaceVariant,
+                                fontSize: 12,
+                                color: BridgeColors.inkSoft,
                               ),
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(width: 8),
-                      FilledButton.tonal(
+                      FilledButton(
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 8),
+                              horizontal: 16, vertical: 10),
                           visualDensity: VisualDensity.compact,
                         ),
                         onPressed: () =>
                             NotificationsChannel.requestNotificationAccess(),
-                        child: const Text('Enable',
-                            style: TextStyle(
-                                fontSize: 12, fontWeight: FontWeight.bold)),
+                        child: const Text('Enable'),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
               ],
 
-              // ── How it works ────────────────────────────────────────────
-              _InfoCard(
-                icon: Icons.phone_android_rounded,
-                title: 'Android → Windows',
-                body:
-                    'Share files from any app (Gallery, Files) via the Share Sheet, or copy text and open Bridge.',
-                color: colorScheme.primaryContainer,
-                onColor: colorScheme.onPrimaryContainer,
-              ),
-              const SizedBox(height: 12),
-              _InfoCard(
-                icon: Icons.computer_rounded,
-                title: 'Windows → Android',
-                body:
-                    'Send files or copy text on Windows. Bridge receives files into Downloads even when closed.',
-                color: colorScheme.secondaryContainer,
-                onColor: colorScheme.onSecondaryContainer,
-              ),
-              const SizedBox(height: 8),
-
-              // ── Use as Webcam button ─────────────────────────────────────
-              ValueListenableBuilder<bool>(
-                valueListenable: SocketService.instance.connected,
-                builder: (context, isConnected, _) {
-                  return SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: isConnected
-                          ? () async {
-                              final url = SocketService.instance.currentUrl ?? '';
-                              // Extract host portion for display
-                              final pcName = url.isNotEmpty
-                                  ? url.replaceFirst(RegExp(r'https?://'), '').split(':').first
-                                  : 'Windows PC';
-                              debugPrint('[BridgeHome] Tapped "Use as Webcam" — pushing CameraScreen(pcName: $pcName)');
-                              await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => CameraScreen(pcName: pcName),
-                                ),
-                              );
-                              debugPrint('[BridgeHome] Returned from CameraScreen route to BridgeHome');
-                            }
-                          : null,
-                      icon: const Icon(Icons.videocam_rounded),
-                      label: const Text('Use as Webcam'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
-
-              // ── Incoming file receive progress ──────────────────────────
+              // ── Incoming file receive progress ──────────────────────
               ValueListenableBuilder<FileReceiveProgress?>(
                 valueListenable: FileTransferService.receiveProgress,
                 builder: (context, rp, _) {
                   if (rp == null) return const SizedBox.shrink();
-                  return _FileReceiveCard(progress: rp);
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: _FileReceiveCard(progress: rp),
+                  );
                 },
+              ),
+
+              // ── Segmented tabs ──────────────────────────────────────
+              _SegmentedTabs(
+                showNotifications: _showNotifications,
+                onSelect: (v) => setState(() => _showNotifications = v),
               ),
               const SizedBox(height: 12),
 
-              // ── Send File button ─────────────────────────────────────────
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    final picked = await FilePicker.pickFiles(
-                      type: FileType.any,
-                    );
-                    if (picked.isEmpty) return;
-                    final uris = picked.map((f) => f.path).whereType<String>().toList();
-                    if (!context.mounted) return;
-                    try {
-                      await FileTransferService.sendFiles(uris);
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Send failed: $e')),
-                        );
-                      }
-                    }
-                  },
-                  icon: const Icon(Icons.upload_file_rounded),
-                  label: const Text('Send File to Windows'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                ),
+              // ── Active panel ────────────────────────────────────────
+              AnimatedSwitcher(
+                duration: BridgeMotion.panelIn,
+                child: _showNotifications
+                    ? const _NotificationsPanel(key: ValueKey('notif'))
+                    : const _ClipboardPanel(key: ValueKey('clip')),
               ),
-              const SizedBox(height: 8),
-
-              // ── Manual sync button ──────────────────────────────────────
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () async {
-                    final result = await ClipboardService.instance.syncNow(force: true);
-                    if (context.mounted) {
-                      String msg;
-                      switch (result) {
-                        case SyncDirectionResult.pulledFromWindows:
-                          msg = 'Pulled latest clipboard from Windows!';
-                          break;
-                        case SyncDirectionResult.sentToWindows:
-                          msg = 'Sent clipboard to Windows!';
-                          break;
-                        case SyncDirectionResult.upToDate:
-                          msg = SocketService.instance.isConnected
-                              ? 'Clipboard is up to date with Windows'
-                              : 'Clipboard synchronized via Background Service';
-                          break;
-                      }
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(msg),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.sync_rounded),
-                  label: const Text('Sync Clipboard Now'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // ── Clipboard History ────────────────────────────────────────
-              const _ClipboardHistoryCard(),
             ],
           ),
         ),
@@ -586,13 +545,231 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
   }
 }
 
-// ── Widgets ─────────────────────────────────────────────────────────────────
+// ── Status hero ──────────────────────────────────────────────────────────────
 
-/// Displays the last 20 clipboard history entries with relative timestamps and local copy-back.
-class _ClipboardHistoryCard extends StatelessWidget {
-  const _ClipboardHistoryCard();
+class _StatusHero extends StatelessWidget {
+  final bool connected;
+  final String serverUrl;
+  final VoidCallback onReconnect;
 
-  String _formatRelativeTime(DateTime dt) {
+  const _StatusHero({
+    required this.connected,
+    required this.serverUrl,
+    required this.onReconnect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final host = serverUrl.replaceFirst(RegExp(r'https?://'), '');
+    return Padding(
+      padding: const EdgeInsets.only(top: 24, bottom: 4),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 11,
+                height: 11,
+                decoration: BoxDecoration(
+                  color: connected
+                      ? BridgeColors.sage
+                      : BridgeColors.disconnectedDot,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 11),
+              Flexible(
+                child: Text(
+                  connected ? 'Connected' : 'Not Connected',
+                  style: BridgeText.statusMain,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            connected ? host : 'Pair your phone to start syncing',
+            style: BridgeText.bodySoft,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 10),
+          if (connected)
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
+              decoration: BoxDecoration(
+                color: BridgeColors.sageSoft,
+                border: Border.all(color: BridgeColors.sand),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  BridgeIcon('shieldCheck',
+                      size: 12, color: BridgeColors.sageDeep),
+                  SizedBox(width: 6),
+                  Text('ENCRYPTED · AES-256-GCM',
+                      style: BridgeText.badgeCaps),
+                ],
+              ),
+            )
+          else
+            TextButton.icon(
+              onPressed: onReconnect,
+              icon: BridgeIcon('refreshCw', size: 15),
+              label: const Text('Reconnect'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Segmented tabs ───────────────────────────────────────────────────────────
+
+class _SegmentedTabs extends StatelessWidget {
+  final bool showNotifications;
+  final ValueChanged<bool> onSelect;
+
+  const _SegmentedTabs(
+      {required this.showNotifications, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<NotificationHistoryItem>>(
+      valueListenable: NotificationHistoryService.instance.items,
+      builder: (context, notifs, _) {
+        return ValueListenableBuilder<List<ClipboardHistoryItem>>(
+          valueListenable: ClipboardHistoryService.instance.items,
+          builder: (context, clips, _) {
+            return Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: BridgeColors.sandSoft,
+                border: Border.all(color: BridgeColors.sand),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                children: [
+                  _Segment(
+                    icon: 'bell',
+                    label: 'Notifications',
+                    count: notifs.length,
+                    active: showNotifications,
+                    onTap: () => onSelect(true),
+                  ),
+                  _Segment(
+                    icon: 'clipboardList',
+                    label: 'Clipboard',
+                    count: clips.length,
+                    active: !showNotifications,
+                    onTap: () => onSelect(false),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _Segment extends StatelessWidget {
+  final String icon;
+  final String label;
+  final int count;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _Segment({
+    required this.icon,
+    required this.label,
+    required this.count,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: BridgeMotion.calm,
+          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 12),
+          decoration: BoxDecoration(
+            color: active ? BridgeColors.card : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: active ? BridgeShadows.card : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              BridgeIcon(icon,
+                  size: 15,
+                  color: active
+                      ? BridgeColors.ink
+                      : BridgeColors.inkSoft),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  fontFamily: 'NunitoSans',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: active
+                      ? BridgeColors.ink
+                      : BridgeColors.inkSoft,
+                ),
+              ),
+              if (count > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: BridgeColors.clay,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: const TextStyle(
+                      fontFamily: 'NunitoSans',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: BridgeColors.creamText,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Notifications panel ──────────────────────────────────────────────────────
+
+class _NotificationsPanel extends StatefulWidget {
+  const _NotificationsPanel({super.key});
+
+  @override
+  State<_NotificationsPanel> createState() => _NotificationsPanelState();
+}
+
+class _NotificationsPanelState extends State<_NotificationsPanel> {
+  final Set<String> _expanded = {};
+  final Map<String, String> _drafts = {};
+  final Set<String> _sending = {};
+
+  String _relative(DateTime dt) {
     final diff = DateTime.now().difference(dt);
     if (diff.inSeconds < 5) return 'just now';
     if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
@@ -601,205 +778,533 @@ class _ClipboardHistoryCard extends StatelessWidget {
     return '${diff.inDays}d ago';
   }
 
-  Color _badgeColor(String type) {
-    switch (type.toLowerCase()) {
-      case 'url':
-        return const Color(0xFF38BDF8);
-      case 'otp':
-        return const Color(0xFFFB923C);
-      case 'email':
-        return const Color(0xFFC084FC);
-      case 'phone':
-        return const Color(0xFF4ADE80);
-      case 'image':
-        return const Color(0xFFF472B6);
-      default:
-        return const Color(0xFF94A3B8);
+  Future<void> _submitReply(NotificationHistoryItem item) async {
+    final text = (_drafts[item.notificationId] ?? '').trim();
+    if (text.isEmpty || _sending.contains(item.notificationId)) return;
+    setState(() => _sending.add(item.notificationId));
+    try {
+      final ok = await NotificationsChannel.sendReply(
+          item.notificationId, text);
+      if (!mounted) return;
+      if (ok) {
+        setState(() {
+          _drafts.remove(item.notificationId);
+          _expanded.remove(item.notificationId);
+        });
+      } else {
+        await NotificationHistoryService.instance
+            .setReplyError(item.notificationId, 'Reply failed — try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _sending.remove(item.notificationId));
     }
+  }
+
+  Future<void> _dismiss(NotificationHistoryItem item) async {
+    await NotificationsChannel.dismissNotification(item.notificationId);
+    await NotificationHistoryService.instance.remove(item.notificationId);
   }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return ValueListenableBuilder<List<ClipboardHistoryItem>>(
-      valueListenable: ClipboardHistoryService.instance.items,
-      builder: (context, history, _) {
-        return Container(
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest.withAlpha(50),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: colorScheme.outlineVariant.withAlpha(70)),
-          ),
-          padding: const EdgeInsets.all(16),
+    return ValueListenableBuilder<List<NotificationHistoryItem>>(
+      valueListenable: NotificationHistoryService.instance.items,
+      builder: (context, notifs, _) {
+        return BridgeCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(Icons.history_rounded, size: 18, color: colorScheme.primary),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Clipboard History',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
+                  const Text('Phone Notifications',
+                      style: BridgeText.panelTitle),
                   const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary.withAlpha(25),
-                      borderRadius: BorderRadius.circular(12),
+                  if (notifs.isNotEmpty)
+                    GestureDetector(
+                      onTap: () =>
+                          NotificationHistoryService.instance.clear(),
+                      child: const Row(
+                        children: [
+                          BridgeIcon('trash',
+                              size: 13, color: BridgeColors.inkSoft),
+                          SizedBox(width: 4),
+                          Text('Clear',
+                              style: TextStyle(
+                                fontFamily: 'NunitoSans',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: BridgeColors.inkSoft,
+                              )),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: BridgeColors.sandSoft,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text('${notifs.length}/20',
+                          style: BridgeText.count),
                     ),
-                    child: Text(
-                      '${history.length}/20',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: colorScheme.primary,
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (notifs.isEmpty)
+                const _EmptyPanel(
+                  icon: 'bell',
+                  message: 'No notifications yet.\nIncoming phone alerts will appear here.',
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: notifs.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+                  itemBuilder: (context, i) =>
+                      _notifItem(notifs[i]),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _notifItem(NotificationHistoryItem item) {
+    final expanded = _expanded.contains(item.notificationId);
+    final sending = _sending.contains(item.notificationId);
+    final initial = item.appName.trim().isEmpty
+        ? 'P'
+        : item.appName.trim()[0].toUpperCase();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: BridgeColors.card,
+        border: Border.all(color: BridgeColors.sand),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      foregroundDecoration: BoxDecoration(
+        border: Border(
+          left: BorderSide(color: BridgeColors.clay, width: 3),
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: BridgeColors.sandSoft,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  initial,
+                  style: const TextStyle(
+                    fontFamily: 'Fraunces',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: BridgeColors.clayInk,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  item.appName.isEmpty ? 'Phone' : item.appName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'NunitoSans',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: BridgeColors.ink,
+                  ),
+                ),
+              ),
+              Text(_relative(item.timestamp),
+                  style: BridgeText.timestamp),
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => _dismiss(item),
+                child: const Padding(
+                  padding: EdgeInsets.all(5),
+                  child: BridgeIcon('x',
+                      size: 14, color: BridgeColors.muted),
+                ),
+              ),
+            ],
+          ),
+          if (item.title.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(item.title,
+                style: BridgeText.notifTitle),
+          ],
+          if (item.text.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              item.text,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: BridgeText.bodySoft,
+            ),
+          ],
+          if (item.replyError != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: BridgeColors.claySoft,
+                border: Border.all(color: BridgeColors.sand),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                item.replyError!,
+                style: const TextStyle(
+                  fontFamily: 'NunitoSans',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: BridgeColors.clayInk,
+                ),
+              ),
+            ),
+          ],
+          if (item.hasReplyAction) ...[
+            GestureDetector(
+              onTap: () => setState(() {
+                if (expanded) {
+                  _expanded.remove(item.notificationId);
+                } else {
+                  _expanded.add(item.notificationId);
+                }
+              }),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 2),
+                child: Row(
+                  children: [
+                    BridgeIcon('messageCircle',
+                        size: 14, color: BridgeColors.inkSoft),
+                    const SizedBox(width: 6),
+                    Text(
+                      expanded ? 'Hide reply' : 'Reply',
+                      style: const TextStyle(
+                        fontFamily: 'NunitoSans',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: BridgeColors.inkSoft,
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+            AnimatedContainer(
+              duration: BridgeMotion.replyExpand,
+              curve: BridgeMotion.calm,
+              height: expanded ? 52 : 0,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 150),
+                opacity: expanded ? 1 : 0,
+                child: expanded
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                key: ValueKey(
+                                    'reply-${item.notificationId}'),
+                                controller: TextEditingController(
+                                    text: _drafts[item.notificationId]),
+                                onChanged: (v) => _drafts[
+                                    item.notificationId] = v,
+                                onSubmitted: (_) => _submitReply(item),
+                                decoration: InputDecoration(
+                                  hintText:
+                                      'Reply to ${item.appName.isEmpty ? 'notification' : item.appName}…',
+                                  contentPadding:
+                                      const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 9),
+                                ),
+                                style: const TextStyle(
+                                  fontFamily: 'NunitoSans',
+                                  fontSize: 13,
+                                  color: BridgeColors.ink,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 11),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: sending
+                                  ? null
+                                  : () => _submitReply(item),
+                              child: sending
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: BridgeColors.creamText,
+                                      ),
+                                    )
+                                  : const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        BridgeIcon('send', size: 12),
+                                        SizedBox(width: 5),
+                                        Text('Send'),
+                                      ],
+                                    ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ── Clipboard panel ──────────────────────────────────────────────────────────
+
+class _ClipboardPanel extends StatefulWidget {
+  const _ClipboardPanel({super.key});
+
+  @override
+  State<_ClipboardPanel> createState() => _ClipboardPanelState();
+}
+
+class _ClipboardPanelState extends State<_ClipboardPanel> {
+  final Set<String> _copiedIds = {};
+
+  String _relative(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 5) return 'just now';
+    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  String _typeIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'url':
+        return 'link';
+      case 'otp':
+        return 'key';
+      case 'email':
+        return 'mail';
+      case 'phone':
+        return 'phone';
+      case 'image':
+        return 'image';
+      default:
+        return 'fileText';
+    }
+  }
+
+  Future<void> _copy(ClipboardHistoryItem item) async {
+    await ClipboardHistoryService.instance.copyLocally(item);
+    if (!mounted) return;
+    setState(() => _copiedIds.add(item.id));
+    await Future.delayed(BridgeMotion.copyFade);
+    if (mounted) setState(() => _copiedIds.remove(item.id));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<ClipboardHistoryItem>>(
+      valueListenable: ClipboardHistoryService.instance.items,
+      builder: (context, history, _) {
+        return BridgeCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text('Clipboard History',
+                      style: BridgeText.panelTitle),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: BridgeColors.sandSoft,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text('${history.length}/20',
+                        style: BridgeText.count),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               if (history.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Center(
-                    child: Text(
-                      'No history yet. Copy text or image to sync.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colorScheme.onSurfaceVariant.withAlpha(150),
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
+                const _EmptyPanel(
+                  icon: 'clipboardList',
+                  message: 'Nothing copied yet.\nCopy text on either device to sync it.',
                 )
               else
                 ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: history.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final item = history[index];
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+                  itemBuilder: (context, i) {
+                    final item = history[i];
                     final isWindows = item.origin == 'windows';
+                    final typeColor =
+                        BridgeColors.typeColor(item.contentType);
+                    final copied = _copiedIds.contains(item.id);
 
-                    return Material(
-                      color: colorScheme.surface,
-                      borderRadius: BorderRadius.circular(10),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(10),
-                        onTap: () async {
-                          await ClipboardHistoryService.instance.copyLocally(item);
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(item.kind == 'image'
-                                    ? 'Image copied to clipboard! Ready to paste.'
-                                    : 'Text copied to clipboard! Ready to paste.'),
-                                duration: const Duration(seconds: 2),
-                              ),
-                            );
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: colorScheme.outlineVariant.withAlpha(60)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    isWindows ? Icons.computer_rounded : Icons.phone_android_rounded,
-                                    size: 13,
-                                    color: isWindows ? const Color(0xFF38BDF8) : const Color(0xFF34D399),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    isWindows ? 'Windows' : 'Android',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: isWindows ? const Color(0xFF38BDF8) : const Color(0xFF34D399),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                    decoration: BoxDecoration(
-                                      color: _badgeColor(item.contentType).withAlpha(35),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
+                    return GestureDetector(
+                      onTap: () => _copy(item),
+                      child: Stack(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                            decoration: BoxDecoration(
+                              color: BridgeColors.card,
+                              border:
+                                  Border.all(color: BridgeColors.sand),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    BridgeIcon(_typeIcon(item.contentType),
+                                        size: 14, color: typeColor),
+                                    const SizedBox(width: 6),
+                                    Text(
                                       item.contentType.toUpperCase(),
                                       style: TextStyle(
-                                        fontSize: 9,
+                                        fontFamily: 'NunitoSans',
+                                        fontSize: 11,
                                         fontWeight: FontWeight.w700,
-                                        color: _badgeColor(item.contentType),
+                                        letterSpacing: 0.6,
+                                        color: typeColor,
                                       ),
                                     ),
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    _formatRelativeTime(item.timestamp),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: colorScheme.onSurfaceVariant.withAlpha(140),
+                                    const Spacer(),
+                                    BridgeIcon(
+                                      isWindows
+                                          ? 'monitor'
+                                          : 'smartphone',
+                                      size: 12,
+                                      color: BridgeColors.muted,
                                     ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Icon(Icons.copy_rounded, size: 12, color: colorScheme.primary.withAlpha(160)),
-                                ],
-                              ),
-                              if (item.kind == 'image' &&
-                                  item.imagePath != null &&
-                                  File(item.imagePath!).existsSync()) ...[
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      '${isWindows ? 'Windows' : 'Android'} · ${_relative(item.timestamp)}',
+                                      style: BridgeText.timestamp,
+                                    ),
+                                  ],
+                                ),
                                 const SizedBox(height: 8),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Container(
-                                    constraints: const BoxConstraints(maxHeight: 120, maxWidth: 180),
+                                if (item.kind == 'image' &&
+                                    item.imagePath != null &&
+                                    File(item.imagePath!).existsSync())
+                                  Container(
+                                    padding: const EdgeInsets.all(3),
                                     decoration: BoxDecoration(
-                                      color: Colors.black26,
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: colorScheme.outlineVariant.withAlpha(60)),
+                                      color: BridgeColors.linen,
+                                      border: Border.all(
+                                          color: BridgeColors.sand),
+                                      borderRadius:
+                                          BorderRadius.circular(14),
                                     ),
-                                    child: Image.file(
-                                      File(item.imagePath!),
-                                      fit: BoxFit.contain,
-                                      errorBuilder: (context, error, stackTrace) => const Padding(
-                                        padding: EdgeInsets.all(12),
-                                        child: Icon(Icons.broken_image_rounded, size: 32),
+                                    child: ClipRRect(
+                                      borderRadius:
+                                          BorderRadius.circular(11),
+                                      child: ConstrainedBox(
+                                        constraints:
+                                            const BoxConstraints(
+                                                maxHeight: 150),
+                                        child: Image.file(
+                                          File(item.imagePath!),
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, _, _) =>
+                                              const Padding(
+                                            padding: EdgeInsets.all(12),
+                                            child: BridgeIcon(
+                                                'imageOff',
+                                                size: 28,
+                                                color: BridgeColors.muted),
+                                          ),
+                                        ),
                                       ),
                                     ),
+                                  )
+                                else
+                                  Text(
+                                    item.text ?? '',
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: BridgeText.body,
                                   ),
-                                ),
-                              ] else ...[
-                                const SizedBox(height: 6),
-                                Text(
-                                  item.text ?? '',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    height: 1.3,
-                                    color: colorScheme.onSurface,
-                                  ),
-                                ),
                               ],
-                            ],
+                            ),
                           ),
-                        ),
+                          // Calm copy confirmation: sage check fades in/out.
+                          Positioned(
+                            top: 12,
+                            right: 14,
+                            child: AnimatedOpacity(
+                              duration:
+                                  const Duration(milliseconds: 180),
+                              opacity: copied ? 1 : 0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: BridgeColors.sageSoft,
+                                  borderRadius:
+                                      BorderRadius.circular(999),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    BridgeIcon('check',
+                                        size: 12,
+                                        color: BridgeColors.sageDeep),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Copied',
+                                      style: TextStyle(
+                                        fontFamily: 'NunitoSans',
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: BridgeColors.sageDeep,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     );
                   },
@@ -812,6 +1317,50 @@ class _ClipboardHistoryCard extends StatelessWidget {
   }
 }
 
+// ── Shared bits ──────────────────────────────────────────────────────────────
+
+/// Calm empty state: sage tile + muted two-line message.
+class _EmptyPanel extends StatelessWidget {
+  final String icon;
+  final String message;
+
+  const _EmptyPanel({required this.icon, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 28),
+      child: Center(
+        child: Column(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: BridgeColors.sageSoft,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: BridgeIcon(icon,
+                  size: 24, color: BridgeColors.sageDeep),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontFamily: 'NunitoSans',
+                fontSize: 13,
+                height: 1.6,
+                color: BridgeColors.inkSoft,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Shows incoming file receive progress (Windows → Android) in BridgeHome.
 class _FileReceiveCard extends StatelessWidget {
   final FileReceiveProgress progress;
@@ -820,38 +1369,43 @@ class _FileReceiveCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final isError = progress.error;
     final isDone = progress.done && !isError;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: isError
-            ? Colors.redAccent.withAlpha(25)
-            : colorScheme.primaryContainer.withAlpha(60),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isError
-              ? Colors.redAccent.withAlpha(75)
-              : colorScheme.primary.withAlpha(75),
-        ),
-      ),
+    return BridgeCard(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      radius: 16,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(
-                isError
-                    ? Icons.error_outline_rounded
-                    : isDone
-                        ? Icons.check_circle_outline_rounded
-                        : Icons.download_rounded,
-                size: 16,
-                color: isError ? Colors.redAccent : colorScheme.primary,
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: isError
+                      ? BridgeColors.claySoft
+                      : isDone
+                          ? BridgeColors.sageSoft
+                          : BridgeColors.sandSoft,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: BridgeIcon(
+                  isError
+                      ? 'x'
+                      : isDone
+                          ? 'check'
+                          : 'download',
+                  size: 15,
+                  color: isError
+                      ? BridgeColors.clayInk
+                      : isDone
+                          ? BridgeColors.sageDeep
+                          : BridgeColors.ink,
+                ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   isError
@@ -859,10 +1413,7 @@ class _FileReceiveCard extends StatelessWidget {
                       : isDone
                           ? 'Received: ${progress.fileName}'
                           : 'Receiving: ${progress.fileName}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: isError ? Colors.redAccent : colorScheme.onSurface,
-                      ),
+                  style: BridgeText.fileName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -870,147 +1421,18 @@ class _FileReceiveCard extends StatelessWidget {
             ],
           ),
           if (!isDone && !isError) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 10),
             ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 value: progress.fraction,
-                backgroundColor: Colors.white12,
-                valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
-                minHeight: 4,
+                backgroundColor: BridgeColors.sandSoft,
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                    BridgeColors.clay),
+                minHeight: 6,
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusCard extends StatelessWidget {
-  final bool connected;
-  final String serverUrl;
-  final VoidCallback onScanAgain;
-
-  const _StatusCard({
-    required this.connected,
-    required this.serverUrl,
-    required this.onScanAgain,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final dotColor = connected ? Colors.greenAccent : Colors.redAccent;
-    final label = connected ? 'Connected' : 'Disconnected';
-    final host = serverUrl.replaceFirst('http://', '');
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              color: dotColor,
-              shape: BoxShape.circle,
-              boxShadow: connected
-                  ? [BoxShadow(color: dotColor.withAlpha(150), blurRadius: 8)]
-                  : null,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: colorScheme.onSurface,
-                          fontWeight: FontWeight.w600,
-                        )),
-                Text(host,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        )),
-              ],
-            ),
-          ),
-          if (!connected) ...[
-            TextButton.icon(
-              onPressed: () {
-                BackgroundService.start();
-                BackgroundService.restartSocket();
-              },
-              icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text('Reconnect'),
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-              ),
-            ),
-            IconButton(
-              onPressed: onScanAgain,
-              icon: const Icon(Icons.qr_code, size: 18),
-              tooltip: 'Scan New QR',
-              visualDensity: VisualDensity.compact,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String body;
-  final Color color;
-  final Color onColor;
-
-  const _InfoCard({
-    required this.icon,
-    required this.title,
-    required this.body,
-    required this.color,
-    required this.onColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: onColor, size: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: TextStyle(
-                        color: onColor,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14)),
-                const SizedBox(height: 4),
-                Text(body,
-                    style: TextStyle(
-                        color: onColor.withAlpha(210), fontSize: 13)),
-              ],
-            ),
-          ),
         ],
       ),
     );

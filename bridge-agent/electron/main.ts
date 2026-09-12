@@ -20,7 +20,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 app.name = 'Bridge Agent'
 try {
   app.setPath('userData', path.join(app.getPath('appData'), 'Bridge Agent'))
-} catch {}
+} catch { }
 
 process.env.APP_ROOT = path.join(__dirname, '..')
 
@@ -68,6 +68,7 @@ function createWindow() {
     minWidth: 420,
     minHeight: 650,
     title: 'Bridge Agent',
+    frame: false, // custom title bar with Bridge gradient accent (see renderer .top-bar)
     icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
@@ -99,6 +100,15 @@ app.on('activate', () => {
 })
 
 // IPC Handlers for Renderer
+// ── Custom title-bar window controls (frameless main window) ────────────────
+ipcMain.handle('window-minimize', (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.minimize()
+})
+
+ipcMain.handle('window-close', (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.close()
+})
+
 ipcMain.handle('get-status', async () => {
   const devices = DeviceStorageService.loadDevices()
   const isPairing = PairingService.isPairingActive()

@@ -21,4 +21,12 @@
         <item name="android:backgroundDimEnabled">true</item>
         <item name="android:backgroundDimAmount">0.5</item>
     </style>
+    <!-- Fully invisible theme for WidgetCopyActivity — tap-to-copy trampoline
+         must not flash any UI; it toasts and finishes immediately -->
+    <style name="Theme.Bridge.Trampoline" parent="@android:style/Theme.Translucent.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

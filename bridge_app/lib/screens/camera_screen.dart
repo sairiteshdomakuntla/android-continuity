@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../theme/bridge_icons.dart';
 import '../services/camera_service.dart';
 import '../services/socket_service.dart';
+import '../theme/bridge_theme.dart';
 
 /// Foreground screen shown when the user taps "Use as Webcam".
 ///
@@ -114,7 +116,7 @@ class _CameraScreenState extends State<CameraScreen>
           builder: (ctx) => AlertDialog(
             title: const Row(
               children: [
-                Icon(Icons.videocam_rounded, color: Color(0xFF6366F1)),
+                BridgeIcon('video', color: BridgeColors.clay, size: 22),
                 SizedBox(width: 10),
                 Text('Camera Access Needed'),
               ],
@@ -130,7 +132,7 @@ class _CameraScreenState extends State<CameraScreen>
                 SizedBox(height: 12),
                 Text(
                   'Microphone access is also requested — this is required internally by the WebRTC engine, even though Bridge streams video only and does not capture or transmit any audio.',
-                  style: TextStyle(fontSize: 13, color: Colors.grey, height: 1.4),
+                  style: TextStyle(fontSize: 13, color: BridgeColors.muted, height: 1.4),
                 ),
               ],
             ),
@@ -214,7 +216,7 @@ class _CameraScreenState extends State<CameraScreen>
         await _stopAndPop(reason: 'back');
       },
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: BridgeColors.linen,
         body: _buildBody(),
       ),
     );
@@ -222,63 +224,71 @@ class _CameraScreenState extends State<CameraScreen>
 
   Widget _buildBody() {
     if (_permissionsDenied) return _buildPermDenied();
-    if (!_permissionsGranted) return _buildLoading('Requesting permissions…');
+    if (!_permissionsGranted) {
+      return SafeArea(child: _buildLoading('Requesting permissions…'));
+    }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // ── Camera preview ──────────────────────────────────────────────
-        RTCVideoView(
-          _cam.localRenderer,
-          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
-          mirror: _useFrontCamera,
-        ),
+    return SafeArea(
+      child: Column(
+        children: [
+          // ── Linen top chrome ──────────────────────────────────────
+          _buildStatusBar(),
 
-        // ── Top status bar ──────────────────────────────────────────────
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: _buildStatusBar(),
-        ),
+          // ── Video well ────────────────────────────────────────────
+          Expanded(
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: BridgeColors.card,
+                  border: Border.all(color: BridgeColors.sand),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: BridgeShadows.card,
+                ),
+                padding: const EdgeInsets.all(8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Container(
+                        color: BridgeColors.videoWell,
+                        child: RTCVideoView(
+                          _cam.localRenderer,
+                          objectFit: RTCVideoViewObjectFit
+                              .RTCVideoViewObjectFitCover,
+                          mirror: _useFrontCamera,
+                        ),
+                      ),
+                      // ── Loading / connecting overlay ──────────────
+                      ValueListenableBuilder<bool>(
+                        valueListenable: _cam.isStreaming,
+                        builder: (context, streaming, _) {
+                          if (_starting ||
+                              (!streaming && _permissionsGranted)) {
+                            return _buildConnectingOverlay();
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
 
-        // ── Loading / connecting overlay ────────────────────────────────
-        ValueListenableBuilder<bool>(
-          valueListenable: _cam.isStreaming,
-          builder: (context, streaming, _) {
-            if (_starting || (!streaming && _permissionsGranted)) {
-              return _buildConnectingOverlay();
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-
-        // ── Bottom controls ─────────────────────────────────────────────
-        Positioned(
-          bottom: 0,
-          left: 0,
-          right: 0,
-          child: _buildBottomControls(),
-        ),
-      ],
+          // ── Linen bottom controls ─────────────────────────────────
+          _buildBottomControls(),
+        ],
+      ),
     );
   }
 
   Widget _buildStatusBar() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.black87, Colors.transparent],
-        ),
-      ),
-      padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 12,
-        left: 16,
-        right: 16,
-        bottom: 24,
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Row(
         children: [
           // Back / close button
@@ -288,11 +298,12 @@ class _CameraScreenState extends State<CameraScreen>
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: Colors.black45,
-                borderRadius: BorderRadius.circular(18),
+                color: BridgeColors.card,
+                border: Border.all(color: BridgeColors.sand),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: Colors.white, size: 18),
+              child: BridgeIcon('arrowLeft',
+                  color: BridgeColors.ink, size: 18),
             ),
           ),
           const SizedBox(width: 12),
@@ -310,27 +321,23 @@ class _CameraScreenState extends State<CameraScreen>
 
                     if (connected) {
                       text = 'You\'re live — streaming to ${widget.pcName}';
-                      dotColor = const Color(0xFF22c55e);
+                      dotColor = BridgeColors.sage;
                     } else if (streaming) {
                       text = 'Connecting to ${widget.pcName}…';
-                      dotColor = Colors.amber;
+                      dotColor = BridgeColors.clay;
                     } else {
                       text = 'Starting camera…';
-                      dotColor = Colors.grey;
+                      dotColor = BridgeColors.disconnectedDot;
                     }
 
                     return Row(
                       children: [
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          width: 8,
-                          height: 8,
+                        Container(
+                          width: 9,
+                          height: 9,
                           decoration: BoxDecoration(
                             color: dotColor,
                             shape: BoxShape.circle,
-                            boxShadow: connected
-                                ? [BoxShadow(color: dotColor.withAlpha(180), blurRadius: 6)]
-                                : null,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -338,12 +345,10 @@ class _CameraScreenState extends State<CameraScreen>
                           child: Text(
                             text,
                             style: const TextStyle(
-                              color: Colors.white,
+                              fontFamily: 'NunitoSans',
+                              color: BridgeColors.ink,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
-                              shadows: [
-                                Shadow(blurRadius: 4, color: Colors.black54),
-                              ],
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -362,18 +367,20 @@ class _CameraScreenState extends State<CameraScreen>
             builder: (context, connected, _) {
               if (!connected) return const SizedBox.shrink();
               return Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.red,
-                  borderRadius: BorderRadius.circular(4),
+                  color: BridgeColors.clay,
+                  borderRadius: BorderRadius.circular(999),
                 ),
                 child: const Text(
-                  '● LIVE',
+                  'LIVE',
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1,
+                    fontFamily: 'NunitoSans',
+                    color: BridgeColors.creamText,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
                   ),
                 ),
               );
@@ -385,37 +392,29 @@ class _CameraScreenState extends State<CameraScreen>
   }
 
   Widget _buildBottomControls() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.bottomCenter,
-          end: Alignment.topCenter,
-          colors: [Colors.black87, Colors.transparent],
-        ),
-      ),
+    return Padding(
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).padding.bottom + 24,
+        bottom: MediaQuery.of(context).padding.bottom + 20,
         left: 40,
         right: 40,
-        top: 32,
+        top: 12,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           // Flip camera
           _ControlButton(
-            icon: Icons.flip_camera_android_rounded,
+            icon: 'switchCamera',
             label: 'Flip',
             onTap: _flipCamera,
           ),
 
           // Stop
           _ControlButton(
-            icon: Icons.stop_circle_rounded,
+            icon: 'square',
             label: 'Stop',
             onTap: () => _stopAndPop(reason: 'stop'),
             isPrimary: true,
-            color: Colors.red,
           ),
         ],
       ),
@@ -424,16 +423,20 @@ class _CameraScreenState extends State<CameraScreen>
 
   Widget _buildConnectingOverlay() {
     return Container(
-      color: Colors.black54,
+      color: BridgeColors.videoWell.withAlpha(200),
       child: const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(color: Color(0xFF6366F1)),
+            CircularProgressIndicator(color: BridgeColors.clay),
             SizedBox(height: 16),
             Text(
               'Starting camera…',
-              style: TextStyle(color: Colors.white70, fontSize: 14),
+              style: TextStyle(
+                fontFamily: 'NunitoSans',
+                color: BridgeColors.brandCream,
+                fontSize: 14,
+              ),
             ),
           ],
         ),
@@ -446,48 +449,66 @@ class _CameraScreenState extends State<CameraScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const CircularProgressIndicator(color: Color(0xFF6366F1)),
+          const CircularProgressIndicator(color: BridgeColors.clay),
           const SizedBox(height: 16),
-          Text(message,
-              style: const TextStyle(color: Colors.white70, fontSize: 14)),
+          Text(message, style: BridgeText.bodySoft),
         ],
       ),
     );
   }
 
   Widget _buildPermDenied() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.videocam_off_rounded,
-                color: Colors.white38, size: 64),
-            const SizedBox(height: 16),
-            const Text(
-              'Camera permission denied',
-              style: TextStyle(
-                  color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Please grant camera and microphone access in Settings to use Bridge as a webcam.',
-              style: TextStyle(color: Colors.white60, fontSize: 14, height: 1.5),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () => openAppSettings(),
-              icon: const Icon(Icons.settings_rounded),
-              label: const Text('Open Settings'),
-            ),
-            const SizedBox(height: 12),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-          ],
+    return SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: BridgeColors.sageSoft,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: BridgeIcon('videoOff',
+                    color: BridgeColors.sageDeep, size: 30),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Camera permission denied',
+                style: TextStyle(
+                  fontFamily: 'Fraunces',
+                  color: BridgeColors.ink,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Please grant camera and microphone access in Settings to use Bridge as a webcam.',
+                style: TextStyle(
+                  fontFamily: 'NunitoSans',
+                  color: BridgeColors.inkSoft,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: () => openAppSettings(),
+                icon: BridgeIcon('settings', size: 17),
+                label: const Text('Open Settings'),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -497,48 +518,52 @@ class _CameraScreenState extends State<CameraScreen>
 // ── _ControlButton ─────────────────────────────────────────────────────────────
 
 class _ControlButton extends StatelessWidget {
-  final IconData icon;
+  final String icon;
   final String label;
   final VoidCallback onTap;
   final bool isPrimary;
-  final Color color;
 
   const _ControlButton({
     required this.icon,
     required this.label,
     required this.onTap,
     this.isPrimary = false,
-    this.color = Colors.white,
   });
 
   @override
   Widget build(BuildContext context) {
+    final size = isPrimary ? 68.0 : 56.0;
     return GestureDetector(
       onTap: onTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            width: isPrimary ? 68 : 56,
-            height: isPrimary ? 68 : 56,
+          Container(
+            width: size,
+            height: size,
             decoration: BoxDecoration(
-              color: isPrimary ? color.withAlpha(200) : Colors.white12,
+              color: isPrimary ? BridgeColors.clay : BridgeColors.card,
               shape: BoxShape.circle,
               border: Border.all(
-                color: isPrimary ? color : Colors.white24,
-                width: isPrimary ? 2 : 1,
+                color: isPrimary ? BridgeColors.clay : BridgeColors.sand,
+                width: isPrimary ? 0 : 1,
               ),
+              boxShadow: BridgeShadows.card,
             ),
-            child: Icon(icon,
-                color: Colors.white, size: isPrimary ? 30 : 24),
+            child: BridgeIcon(icon,
+                color: isPrimary
+                    ? BridgeColors.creamText
+                    : BridgeColors.ink,
+                size: isPrimary ? 26 : 22),
           ),
           const SizedBox(height: 6),
           Text(label,
               style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500)),
+                fontFamily: 'NunitoSans',
+                color: BridgeColors.inkSoft,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              )),
         ],
       ),
     );

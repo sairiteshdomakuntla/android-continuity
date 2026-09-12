@@ -71,6 +71,42 @@ let replyDrafts: Record<string, string> = {}
 let replySubmitting: Record<string, boolean> = {}
 let lastStatus: StatusResponse | null = null
 
+// ── Render-only UI state (no IPC/backend impact) ─────────────────────────────
+let activeTab: 'notifications' | 'clipboard' = 'notifications'
+const expandedReplies = new Set<string>()
+
+// ── Lucide icons (bundled inline SVG, 2px stroke — no CDN dependency) ─────────
+const ICONS: Record<string, string> = {
+  zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+  camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+  fileUp: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  clipboardList: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  minus: '<path d="M5 12h14"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  key: '<path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>',
+  mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  image: '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+  messageCircle: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
+  monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+  send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  shieldCheck: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  sprout: '<path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-3.2.3-4.3 1-4.9 2z"/>',
+  wifi: '<path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/>',
+}
+
+function icon(name: string, size = 14): string {
+  const body = ICONS[name] || ICONS.fileText
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
+}
+
 function getRelativeTime(isoString: string): string {
   try {
     const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)
@@ -96,39 +132,57 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;')
 }
 
+function appInitial(appName: string): string {
+  const trimmed = (appName || 'P').trim()
+  return escapeHtml(trimmed.charAt(0).toUpperCase() || 'P')
+}
+
+function clipTypeIcon(contentType: ClipboardHistoryItem['contentType']): string {
+  switch (contentType) {
+    case 'url': return icon('link')
+    case 'otp': return icon('key')
+    case 'email': return icon('mail')
+    case 'phone': return icon('phone')
+    case 'image': return icon('image')
+    default: return icon('fileText')
+  }
+}
+
 function renderNotificationItem(item: NotificationItem): string {
   const hasReply = item.hasReplyAction
   const draft = replyDrafts[item.notificationId] || ''
   const isSubmitting = !!replySubmitting[item.notificationId]
+  const expanded = expandedReplies.has(item.notificationId)
 
   return `
-    <div class="notification-item" data-notif-id="${escapeHtml(item.notificationId)}">
-      <div class="notification-top">
-        <div class="notification-app">
-          <span class="notification-app-icon">💬</span>
-          <span class="notification-app-name">${escapeHtml(item.appName || 'Phone')}</span>
-          <span class="notification-time">${getRelativeTime(item.timestamp)}</span>
+    <div class="notif-item unread" data-notif-id="${escapeHtml(item.notificationId)}">
+      <div class="notif-top">
+        <div class="notif-app">
+          <span class="app-avatar">${appInitial(item.appName)}</span>
+          <span class="app-name">${escapeHtml(item.appName || 'Phone')}</span>
+          <span class="notif-time">· ${getRelativeTime(item.timestamp)}</span>
         </div>
         <button
-          class="notification-dismiss"
+          class="notif-dismiss"
           data-dismiss-id="${escapeHtml(item.notificationId)}"
           title="Dismiss notification"
-        >✕</button>
+        >${icon('x', 13)}</button>
       </div>
 
-      ${item.title ? `<div class="notification-title">${escapeHtml(item.title)}</div>` : ''}
-      ${item.text ? `<div class="notification-body">${escapeHtml(item.text)}</div>` : ''}
+      ${item.title ? `<div class="notif-title">${escapeHtml(item.title)}</div>` : ''}
+      ${item.text ? `<div class="notif-body">${escapeHtml(item.text)}</div>` : ''}
 
-      ${
-        item.replyError
-          ? `<div class="reply-error-badge">⚠️ ${escapeHtml(item.replyError)}</div>`
-          : ''
-      }
+      ${item.replyError
+      ? `<div class="reply-error">${escapeHtml(item.replyError)}</div>`
+      : ''
+    }
 
-      ${
-        hasReply
-          ? `
-        <div class="notification-reply-box">
+      ${hasReply
+      ? `
+        <button class="reply-toggle" data-reply-toggle="${escapeHtml(item.notificationId)}">
+          ${icon('messageCircle', 13)}<span>${expanded ? 'Hide reply' : 'Reply'}</span>
+        </button>
+        <div class="notif-reply-area ${expanded ? 'expanded' : ''}">
           <input
             type="text"
             class="reply-input"
@@ -141,12 +195,31 @@ function renderNotificationItem(item: NotificationItem): string {
             data-send-reply-id="${escapeHtml(item.notificationId)}"
             ${isSubmitting ? 'disabled' : ''}
           >
-            ${isSubmitting ? 'Sending…' : 'Reply'}
+            ${isSubmitting ? 'Sending…' : `${icon('send', 12)}<span>Send</span>`}
           </button>
         </div>
       `
-          : ''
-      }
+      : ''
+    }
+    </div>
+  `
+}
+
+function renderClipboardItem(item: ClipboardHistoryItem): string {
+  const typeLabel = (item.contentType || 'text').toUpperCase()
+  const originIcon = item.origin === 'android' ? icon('smartphone', 11) : icon('monitor', 11)
+  const originLabel = item.origin === 'android' ? 'Android' : 'Windows'
+
+  return `
+    <div class="clipboard-item" data-id="${item.id}" title="Click to copy locally">
+      <div class="clip-top">
+        <span class="clip-type ${item.contentType || 'text'}">${clipTypeIcon(item.contentType)}<span>${typeLabel}</span></span>
+        <span class="clip-origin">${originIcon}<span>${originLabel} · ${getRelativeTime(item.timestamp)}</span></span>
+      </div>
+      ${item.kind === 'image' && item.imageThumbnail
+      ? `<div class="clip-image-wrap"><img class="clip-image" src="${item.imageThumbnail}" alt="Clipboard image" /></div>`
+      : `<div class="clip-content">${escapeHtml(item.text || '')}</div>`
+    }
     </div>
   `
 }
@@ -156,176 +229,171 @@ function render(state: StatusResponse) {
   const hasDevices = state.devices.length > 0
   const isPairing = state.isPairingActive && state.currentPairing
   const pairing = state.currentPairing
+  const device = hasDevices ? state.devices[0] : null
 
   appEl.innerHTML = `
-    <div class="header">
-      <div class="title-row">
-        <h1>Bridge Agent</h1>
+    <div class="top-bar">
+      <div class="top-bar-left">
+        <span class="brand-icon">${icon('sprout', 14)}</span>
+        <span class="brand-name">Bridge</span>
       </div>
-      <div class="badge ${hasDevices ? 'active' : ''}">
-        ${hasDevices ? '● AES-256-GCM Active' : '○ Pairing Mode'}
+      <div class="top-bar-right">
+        <button class="win-btn" id="btn-minimize" title="Minimize">${icon('minus', 14)}</button>
+        <button class="win-btn close" id="btn-close" title="Close">${icon('x', 14)}</button>
       </div>
     </div>
 
-    ${
-      isPairing && pairing
-        ? `
-      <div class="card">
-        <div class="qr-container">
-          <img class="qr-image" src="${pairing.qrDataUrl}" alt="Pairing QR Code" />
+    <div class="scroll">
+      <section class="status-hero">
+        <div class="status-row">
+          <span class="status-dot ${hasDevices ? 'connected' : ''}"></span>
+          <h1 class="status-main">${hasDevices ? escapeHtml(device!.name || 'Android Device') : 'Not Connected'}</h1>
         </div>
-        
-        <div class="ip-pill">
-          <span>LAN:</span> ${pairing.ip}:${pairing.port}
-        </div>
+        ${hasDevices
+      ? `<span class="enc-badge">${icon('shieldCheck', 11)}<span>Encrypted · AES-256-GCM</span></span>`
+      : `<p class="status-sub">Pair your phone to start syncing</p>`
+    }
+      </section>
 
-        <div class="adapter-selector">
-          <label class="adapter-label" for="ip-select">Network Interface</label>
-          <select id="ip-select" class="interface-dropdown">
+      ${hasDevices
+      ? `
+      <div class="actions">
+        <button id="btn-camera" class="btn primary">${icon('camera', 15)}<span>Phone Camera</span></button>
+        <div class="actions-row">
+          <button id="btn-send-file" class="btn secondary">${icon('fileUp', 14)}<span>Send File</span></button>
+          <button id="btn-pair-new" class="btn ghost">${icon('plus', 14)}<span>Pair New</span></button>
+          <button id="btn-unpair" class="btn danger-ghost"><span>Unpair</span></button>
+        </div>
+      </div>
+      `
+      : ''
+    }
+
+      ${isPairing && pairing
+      ? `
+      <div class="qr-card">
+        <div class="qr-img"><img src="${pairing.qrDataUrl}" alt="Pairing QR code" /></div>
+        <div class="ip-pill">${icon('wifi', 13)}<span>${pairing.ip}:${pairing.port}</span></div>
+        <div class="adapter-select">
+          <label for="ip-select">Network Interface</label>
+          <select id="ip-select">
             ${(pairing.candidates || [])
-              .map(
-                (c) => `
+        .map(
+          (c) => `
               <option value="${c.ip}" ${c.ip === pairing.ip ? 'selected' : ''}>
-                ${c.name} (${c.ip}) ${c.hasDefaultGateway ? '★ Gateway' : ''}
+                ${c.name} (${c.ip})${c.hasDefaultGateway ? ' — Gateway' : ''}
               </option>
             `
-              )
-              .join('')}
+        )
+        .join('')}
           </select>
-          <div class="interface-details">
-            ${
-              pairing.selected
-                ? `${pairing.selected.description || pairing.selected.name} ${
-                    pairing.selected.gateway ? `• Gateway: ${pairing.selected.gateway}` : ''
-                  }`
-                : 'Auto-detected active LAN interface'
-            }
+          <div class="adapter-detail">
+            ${pairing.selected
+        ? `${escapeHtml(pairing.selected.description || pairing.selected.name)}${pairing.selected.gateway ? ` · Gateway ${escapeHtml(pairing.selected.gateway)}` : ''}`
+        : 'Auto-detected active LAN interface'
+      }
           </div>
         </div>
-
         <p class="instruction">
           Open <strong>Bridge</strong> on your phone and scan this QR code to establish secure pairing.
         </p>
       </div>
-    `
-        : ''
+      `
+      : ''
     }
 
-    ${
-      hasDevices
-        ? `
-      <div class="paired-card">
-        <div class="success-icon">✓</div>
-        <h2 class="paired-title">Paired Device</h2>
-        <div class="device-info">
-          <span class="device-name">${state.devices[0].name || 'Android Device'}</span>
-          <span class="device-id">${state.devices[0].deviceId.slice(0, 8)}...</span>
-        </div>
-        <p class="instruction">
-          Encrypted tunnel established. Clipboard & notification synchronization active.
-        </p>
-        <div id="camera-progress-container" class="camera-progress-container" style="display:none">
-          <div class="camera-progress-title">📷 Setting up camera support…</div>
-          <div class="camera-progress-bar-track">
-            <div class="camera-progress-bar-fill" id="camera-progress-bar"></div>
-          </div>
-          <div class="camera-progress-message" id="camera-progress-message"></div>
-        </div>
-        <div id="camera-error-banner" class="camera-error-banner" style="display:none">
-          <span class="camera-error-text" id="camera-error-text">Camera setup failed — try restarting Bridge</span>
-          <button class="camera-error-close" id="camera-error-close">✕</button>
-        </div>
-        <div id="file-progress-container" class="file-progress-container" style="display:none">
-          <div class="file-progress-name" id="file-progress-name"></div>
-          <div class="file-progress-bar-track">
-            <div class="file-progress-bar-fill" id="file-progress-bar"></div>
-          </div>
-          <div class="file-progress-label" id="file-progress-label"></div>
-        </div>
-        <div class="actions">
-          <button id="btn-camera" class="secondary">📷 Phone Camera</button>
-          <button id="btn-send-file" class="secondary">📤 Send File</button>
-          <button id="btn-pair-new" class="secondary">Pair New Device</button>
-          <button id="btn-unpair" class="danger">Unpair</button>
-        </div>
+      ${!isPairing && !hasDevices
+      ? `
+      <div class="empty-state">
+        <span class="empty-icon">${icon('sprout', 24)}</span>
+        <p>No devices paired yet.<br />Generate a QR code to link your phone.</p>
+        <button id="btn-start-pair" class="btn primary">${icon('plus', 15)}<span>Generate Pairing QR</span></button>
       </div>
-    `
-        : ''
+      `
+      : ''
     }
 
-    ${
-      !isPairing && !hasDevices
-        ? `
-      <div class="card">
-        <p class="instruction">No devices paired.</p>
-        <button id="btn-start-pair" style="margin-top: 16px;">Generate Pairing QR</button>
+      ${hasDevices
+      ? `
+      <div class="camera-progress" id="camera-progress-container" style="display:none">
+        <div class="camera-progress-title">${icon('camera', 13)}<span>Setting up camera support…</span></div>
+        <div class="camera-progress-track">
+          <div class="camera-progress-fill" id="camera-progress-bar"></div>
+        </div>
+        <div class="camera-progress-msg" id="camera-progress-message"></div>
       </div>
-    `
-        : ''
+      <div class="camera-error" id="camera-error-banner" style="display:none">
+        <span class="camera-error-text" id="camera-error-text">Camera setup failed — try restarting Bridge</span>
+        <button class="camera-error-close" id="camera-error-close">${icon('x', 13)}</button>
+      </div>
+      `
+      : ''
     }
 
-    <!-- ── Phone Notifications Card ──────────────────────────────── -->
-    <div class="notifications-card">
-      <div class="notifications-header">
-        <div class="notifications-title">
-          <span>🔔 Phone Notifications</span>
-          <span class="notifications-count">${notificationsList.length}/20</span>
+      <div class="file-progress" id="file-progress-container" style="display:none">
+        <div class="file-progress-name" id="file-progress-name"></div>
+        <div class="file-progress-track">
+          <div class="file-progress-fill" id="file-progress-bar"></div>
         </div>
-        ${
-          notificationsList.length > 0
-            ? '<button id="btn-clear-notifications" class="text-btn">Clear all</button>'
-            : ''
-        }
+        <div class="file-progress-label" id="file-progress-label"></div>
       </div>
-      <div class="notifications-list" id="notifications-list">
-        ${
-          notificationsList.length === 0
-            ? '<div class="notifications-empty">No notifications from phone yet.<br>Incoming alerts will appear here in real-time.</div>'
-            : notificationsList.map(renderNotificationItem).join('')
-        }
-      </div>
-    </div>
 
-    <!-- ── Clipboard History Card ────────────────────────────────────── -->
-    <div class="history-card">
-      <div class="history-header">
-        <div class="history-title">
-          <span>📋 Clipboard History</span>
-          <span class="history-count">${clipboardHistory.length}/20</span>
+      <div class="segmented">
+        <button class="segment ${activeTab === 'notifications' ? 'active' : ''}" data-tab="notifications">
+          ${icon('bell', 13)}<span>Notifications</span>
+          ${notificationsList.length > 0 ? `<span class="badge">${notificationsList.length}</span>` : ''}
+        </button>
+        <button class="segment ${activeTab === 'clipboard' ? 'active' : ''}" data-tab="clipboard">
+          ${icon('clipboardList', 13)}<span>Clipboard</span>
+          ${clipboardHistory.length > 0 ? `<span class="badge">${clipboardHistory.length}</span>` : ''}
+        </button>
+      </div>
+
+      ${activeTab === 'notifications'
+      ? `
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Phone Notifications</span>
+          ${notificationsList.length > 0
+        ? `<button id="btn-clear-notifications" class="panel-btn">${icon('trash', 12)}<span>Clear</span></button>`
+        : `<span class="panel-count">${notificationsList.length}/20</span>`
+      }
+        </div>
+        <div class="panel-body" id="notifications-list">
+          ${notificationsList.length === 0
+        ? `<div class="panel-empty"><span class="empty-icon">${icon('bell', 22)}</span><p>No notifications yet.<br />Incoming phone alerts will appear here.</p></div>`
+        : notificationsList.map(renderNotificationItem).join('')
+      }
         </div>
       </div>
-      <div class="history-list" id="history-list">
-        ${
-          clipboardHistory.length === 0
-            ? '<div class="history-empty">No clipboard items recorded yet.<br>Copy text on Windows or Android to sync.</div>'
-            : clipboardHistory
-                .map(
-                  (item) => `
-            <div class="history-item" data-id="${item.id}" title="Click to copy locally">
-              <div class="history-item-top">
-                <span class="history-origin ${item.origin}">
-                  ${item.origin === 'android' ? '📱 Android' : '💻 Windows'}
-                </span>
-                <div class="history-time-wrap">
-                  ${item.contentType ? `<span class="history-content-type type-${item.contentType}">${item.contentType.toUpperCase()}</span>` : ''}
-                  <span class="history-time">${getRelativeTime(item.timestamp)}</span>
-                </div>
-              </div>
-              ${
-                item.kind === 'image' && item.imageThumbnail
-                  ? `<div class="history-image-container"><img class="history-thumbnail" src="${item.imageThumbnail}" alt="Clipboard Image" /></div>`
-                  : `<div class="history-text">${escapeHtml(item.text || '')}</div>`
-              }
-            </div>
-          `
-                )
-                .join('')
-        }
+      `
+      : `
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Clipboard History</span>
+          <span class="panel-count">${clipboardHistory.length}/20</span>
+        </div>
+        <div class="panel-body" id="history-list">
+          ${clipboardHistory.length === 0
+        ? `<div class="panel-empty"><span class="empty-icon">${icon('clipboardList', 22)}</span><p>Nothing copied yet.<br />Copy text on either device to sync it.</p></div>`
+        : clipboardHistory.map(renderClipboardItem).join('')
+      }
+        </div>
       </div>
+      `
+    }
     </div>
   `
 
   // ── Attach Handlers ────────────────────────────────────────────────────────
+  document.querySelector('#btn-minimize')?.addEventListener('click', async () => {
+    try { await window.ipcRenderer.invoke('window-minimize') } catch { /* native frame fallback */ }
+  })
+
+  document.querySelector('#btn-close')?.addEventListener('click', async () => {
+    try { await window.ipcRenderer.invoke('window-close') } catch { window.close() }
+  })
+
   document.querySelector('#camera-error-close')?.addEventListener('click', () => {
     const errorBanner = document.getElementById('camera-error-banner')
     if (errorBanner) errorBanner.style.display = 'none'
@@ -373,8 +441,38 @@ function render(state: StatusResponse) {
     await window.ipcRenderer.invoke('clear-notifications')
   })
 
+  // Segmented tab switching (render-only, no IPC)
+  document.querySelectorAll<HTMLButtonElement>('.segment').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = btn.getAttribute('data-tab')
+      if (tab === 'notifications' || tab === 'clipboard') {
+        activeTab = tab
+        if (lastStatus) render(lastStatus)
+      }
+    })
+  })
+
+  // Reply toggle (collapsed by default, smooth expand)
+  document.querySelectorAll<HTMLButtonElement>('.reply-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const notifId = btn.getAttribute('data-reply-toggle')
+      if (!notifId) return
+      if (expandedReplies.has(notifId)) {
+        expandedReplies.delete(notifId)
+      } else {
+        expandedReplies.add(notifId)
+      }
+      if (lastStatus) render(lastStatus)
+      // Restore focus to the expanded input
+      if (expandedReplies.has(notifId)) {
+        const input = document.querySelector<HTMLInputElement>(`.reply-input[data-reply-id="${CSS.escape(notifId)}"]`)
+        input?.focus()
+      }
+    })
+  })
+
   // Dismiss notification buttons
-  document.querySelectorAll<HTMLButtonElement>('.notification-dismiss').forEach((btn) => {
+  document.querySelectorAll<HTMLButtonElement>('.notification-dismiss, .notif-dismiss').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation()
       const notifId = btn.getAttribute('data-dismiss-id')
@@ -412,7 +510,7 @@ function render(state: StatusResponse) {
   })
 
   // History item click to copy locally
-  document.querySelectorAll<HTMLDivElement>('.history-item').forEach((el) => {
+  document.querySelectorAll<HTMLDivElement>('.clipboard-item').forEach((el) => {
     el.addEventListener('click', async () => {
       const id = el.getAttribute('data-id')
       const item = clipboardHistory.find((h) => h.id === id)
@@ -420,13 +518,12 @@ function render(state: StatusResponse) {
 
       try {
         await window.ipcRenderer.invoke('copy-history-item', item.id)
-        const timeWrap = el.querySelector('.history-time-wrap')
-        if (timeWrap) {
-          const prevHtml = timeWrap.innerHTML
-          timeWrap.innerHTML = '<span class="history-copied-badge">Copied! ✓</span>'
-          setTimeout(() => {
-            timeWrap.innerHTML = prevHtml
-          }, 1500)
+        if (!el.querySelector('.clip-copied')) {
+          const badge = document.createElement('span')
+          badge.className = 'clip-copied'
+          badge.innerHTML = `${icon('check', 12)}<span>Copied</span>`
+          el.appendChild(badge)
+          setTimeout(() => badge.remove(), 1300)
         }
       } catch (err) {
         console.error('Failed to copy history item:', err)
@@ -471,14 +568,14 @@ async function refresh() {
       if (Array.isArray(history)) {
         clipboardHistory = history
       }
-    } catch {}
+    } catch { }
 
     try {
       const notifs = (await window.ipcRenderer.invoke('get-notifications')) as NotificationItem[]
       if (Array.isArray(notifs)) {
         notificationsList = notifs
       }
-    } catch {}
+    } catch { }
 
     render(status)
   } catch (e) {

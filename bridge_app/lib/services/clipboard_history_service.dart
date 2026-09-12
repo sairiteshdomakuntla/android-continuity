@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import 'system_channel.dart';
 import 'clipboard_service.dart';
 import 'content_classifier.dart';
+import 'widget_snapshot_service.dart';
 
 const int kMaxClipboardHistory = 20;
 const String _kStorageKey = 'clipboard_history';
@@ -77,6 +78,8 @@ class ClipboardHistoryService {
     _initialized = true;
     await load();
     await _pruneOrphanedImages();
+    // Publish the initial widget snapshot (covers first-run empty state).
+    await WidgetSnapshotService.syncFromItems(items.value);
   }
 
   Future<void> load() async {
@@ -175,6 +178,8 @@ class ClipboardHistoryService {
     items.value = List.unmodifiable(capped);
 
     await _save(capped);
+    // Keep the home-screen widget snapshot in step (single UI writer).
+    await WidgetSnapshotService.syncFromItems(capped);
     debugPrint('[ClipboardHistory] Added new ${newItem.kind} entry (${newItem.origin}): ${newItem.contentType} (${capped.length}/20)');
   }
 
@@ -224,6 +229,7 @@ class ClipboardHistoryService {
     }
     items.value = const [];
     await _storage.delete(key: _kStorageKey);
+    await WidgetSnapshotService.syncFromItems(const []);
   }
 
   void _deleteImageFile(String? path) {

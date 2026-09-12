@@ -17,6 +17,7 @@ import 'pairing_storage_service.dart';
 import 'event_dedupe.dart';
 import 'system_channel.dart';
 import 'notifications_channel.dart';
+import 'widget_snapshot_service.dart';
 
 const String _kNotificationChannelId = 'bridge_foreground_service';
 const String _kFileNotificationChannelId = 'bridge_file_transfers';
@@ -165,6 +166,9 @@ void onStart(ServiceInstance service) async {
   // Handle Service stop
   service.on('stopService').listen((event) async {
     debugPrint('[BackgroundService] stopService invoked. Disconnecting socket and stopping self.');
+    try {
+      await WidgetSnapshotService.markServiceStopped();
+    } catch (_) {}
     SocketService.instance.disconnect();
     await service.stopSelf();
   });
@@ -281,6 +285,13 @@ void onStart(ServiceInstance service) async {
       'timestamp': msg.timestamp,
       'origin': msg.origin.name,
     });
+
+    // 4. Refresh the home-screen widget snapshot straight from storage so
+    // the widget updates even when the app UI process is dead. The UI
+    // isolate rewrites the snapshot with the full entry moments later.
+    try {
+      await WidgetSnapshotService.syncFromStorage();
+    } catch (_) {}
   });
 
   // Incoming camera-signal from Windows -> forward to UI isolate
@@ -312,6 +323,17 @@ void onStart(ServiceInstance service) async {
 
     debugPrint('[BackgroundService] [NOTIFICATION] [SEND] Outgoing notification [$eventType] for ${event['notificationId']} (${event['appName'] ?? ''})');
     await SocketService.instance.emit(msg);
+
+    // UI feed: mirror to the UI isolate so the Notifications tab (and the
+    // home-screen widget snapshot) stay current. Same pattern as
+    // `clipboard_received` above; no protocol or socket impact.
+    if (eventType == 'posted') {
+      service.invoke('notification_posted', Map<String, dynamic>.from(event));
+    } else if (eventType == 'dismissed') {
+      service.invoke('notification_dismissed', {
+        'notificationId': event['notificationId'],
+      });
+    }
   });
 
   // 2. Handle incoming notification actions from Windows (reply, dismiss-request)

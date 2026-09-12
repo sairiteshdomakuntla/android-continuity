@@ -4,6 +4,7 @@ import 'services/file_transfer_service.dart';
 import 'services/pairing_storage_service.dart';
 import 'services/background_service.dart';
 import 'screens/share_progress_screen.dart';
+import 'theme/bridge_theme.dart';
 
 /// Cold-start entry point for ShareTargetActivity.
 @pragma('vm:entry-point')
@@ -31,13 +32,7 @@ class ShareApp extends StatelessWidget {
     return MaterialApp(
       title: 'Bridge Share',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF6366F1),
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: BridgeTheme.light(),
       home: const Scaffold(
         backgroundColor: Colors.transparent,
         body: ShareProgressScreen(),

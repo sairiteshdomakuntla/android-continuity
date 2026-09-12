@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../theme/bridge_icons.dart';
 import '../services/file_transfer_service.dart';
 import '../services/pairing_storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/background_service.dart';
+import '../theme/bridge_theme.dart';
 
 const _shareChannel = MethodChannel('bridge/share');
 
@@ -185,10 +187,13 @@ class _BottomSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 36),
-      decoration: const BoxDecoration(
-        color: Color(0xFF1E293B),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 36),
+      decoration: BoxDecoration(
+        color: BridgeColors.card,
+        border: Border.all(color: BridgeColors.sand),
+        borderRadius:
+            const BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: BridgeShadows.card,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -199,7 +204,7 @@ class _BottomSheet extends StatelessWidget {
             child: Container(
               width: 40, height: 4,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: BridgeColors.sand,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -214,8 +219,9 @@ class _BottomSheet extends StatelessWidget {
                 child: Text(
                   statusText,
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
+                    fontFamily: 'Fraunces',
+                    color: BridgeColors.ink,
+                    fontSize: 17,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -227,31 +233,56 @@ class _BottomSheet extends StatelessWidget {
             if (currentFileName.isNotEmpty)
               Text(
                 currentFileName,
-                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                style: const TextStyle(
+                  fontFamily: 'NunitoSans',
+                  color: BridgeColors.inkSoft,
+                  fontSize: 13,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             const SizedBox(height: 8),
             ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 value: overallFraction,
-                backgroundColor: Colors.white12,
-                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
+                backgroundColor: BridgeColors.sandSoft,
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                    BridgeColors.clay),
                 minHeight: 6,
               ),
             ),
             const SizedBox(height: 6),
             Text(
               totalCount > 1 ? '$sentCount / $totalCount files' : '',
-              style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+              style: const TextStyle(
+                fontFamily: 'NunitoSans',
+                color: BridgeColors.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
           if (phase == _Phase.error) ...[
             const SizedBox(height: 12),
-            Text(
-              errorText ?? 'Unknown error',
-              style: const TextStyle(color: Color(0xFFFCA5A5), fontSize: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: BridgeColors.claySoft,
+                border: Border.all(color: BridgeColors.sand),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                errorText ?? 'Unknown error',
+                style: const TextStyle(
+                  fontFamily: 'NunitoSans',
+                  color: BridgeColors.clayInk,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
             const SizedBox(height: 16),
             Row(
@@ -259,12 +290,11 @@ class _BottomSheet extends StatelessWidget {
               children: [
                 TextButton(
                   onPressed: onDismiss,
-                  child: const Text('Dismiss', style: TextStyle(color: Color(0xFF94A3B8))),
+                  child: const Text('Dismiss'),
                 ),
                 const SizedBox(width: 8),
-                ElevatedButton(
+                FilledButton(
                   onPressed: onRetry,
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF6366F1)),
                   child: const Text('Retry'),
                 ),
               ],
@@ -280,15 +310,43 @@ class _BottomSheet extends StatelessWidget {
       case _Phase.loading:
       case _Phase.connecting:
         return const SizedBox(
-          width: 24, height: 24,
-          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1)),
+          width: 26, height: 26,
+          child: CircularProgressIndicator(
+              strokeWidth: 2.5, color: BridgeColors.clay),
         );
       case _Phase.sending:
-        return const Icon(Icons.upload_rounded, color: Color(0xFF6366F1), size: 24);
+        return Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: BridgeColors.sandSoft,
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: BridgeIcon('fileUp',
+              color: BridgeColors.clayInk, size: 20),
+        );
       case _Phase.done:
-        return const Icon(Icons.check_circle_rounded, color: Color(0xFF22C55E), size: 24);
+        return Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: BridgeColors.sageSoft,
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: BridgeIcon('check',
+              color: BridgeColors.sageDeep, size: 20),
+        );
       case _Phase.error:
-        return const Icon(Icons.error_rounded, color: Color(0xFFF87171), size: 24);
+        return Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: BridgeColors.claySoft,
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: BridgeIcon('x',
+              color: BridgeColors.clayInk, size: 20),
+        );
     }
   }
 }

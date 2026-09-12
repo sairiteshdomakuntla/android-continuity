@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import '../theme/bridge_icons.dart';
 import '../services/pairing_storage_service.dart';
 import '../services/socket_service.dart';
 import '../services/background_service.dart';
 import '../main.dart';
+import '../theme/bridge_theme.dart';
 
 class ScanPairScreen extends StatefulWidget {
   const ScanPairScreen({super.key});
@@ -62,7 +64,6 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Pairing failed: ${e.toString().replaceAll('Exception: ', '')}'),
-          backgroundColor: Colors.redAccent,
         ),
       );
       setState(() {
@@ -107,7 +108,6 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Paired successfully with Windows Bridge!'),
-        backgroundColor: Colors.green,
       ),
     );
 
@@ -178,17 +178,17 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: BridgeColors.linen,
       appBar: AppBar(
-        title: const Text('Pair with Bridge Agent'),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
+        title: const Text('Pair with Bridge', style: BridgeText.panelTitle),
+        backgroundColor: BridgeColors.linen,
+        foregroundColor: BridgeColors.ink,
+        elevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.keyboard_alt_outlined),
+            icon: BridgeIcon('keyboard', size: 20),
+            color: BridgeColors.inkSoft,
             tooltip: 'Manual Entry',
             onPressed: _isProcessing ? null : _showManualEntryDialog,
           ),
@@ -208,7 +208,7 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
               width: 260,
               height: 260,
               decoration: BoxDecoration(
-                border: Border.all(color: colorScheme.primary, width: 3),
+                border: Border.all(color: BridgeColors.clay, width: 3),
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
@@ -222,9 +222,10 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
               decoration: BoxDecoration(
-                color: Colors.black.withAlpha(200),
+                color: BridgeColors.card,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white24),
+                border: Border.all(color: BridgeColors.sand),
+                boxShadow: BridgeShadows.card,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -233,21 +234,25 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
                     const SizedBox(
                       width: 24,
                       height: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: BridgeColors.clay,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Text(
                       _statusText ?? 'Pairing...',
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: BridgeText.body,
                     ),
                   ] else ...[
-                    const Icon(Icons.qr_code_scanner_rounded, color: Colors.white, size: 28),
+                    BridgeIcon('scanLine',
+                        color: BridgeColors.clay, size: 28),
                     const SizedBox(height: 8),
                     const Text(
                       'Point camera at the QR code on your PC screen',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white, fontSize: 14),
+                      style: BridgeText.body,
                     ),
                   ],
                 ],
