@@ -171,6 +171,27 @@ try {
   await sleep(300)
   check('click sequence dispatched (left/right/dismiss)', true)
 
+  // ── 7. Keyboard: streamed text + specials ───────────────────────────────────
+  send({ event: 'key-input', text: 'Hello, Bridge!' })
+  await sleep(200)
+  send({ event: 'key-input', text: ' line two' })
+  await sleep(200)
+  send({ event: 'key-special', key: 'enter' })
+  await sleep(150)
+  send({ event: 'key-special', key: 'backspace' })
+  await sleep(150)
+  send({ event: 'key-special', key: 'space' })
+  await sleep(300)
+  check('keyboard input + specials dispatched', true)
+
+  // ── 8. Media commands (apply to whatever has media focus) ──────────────────
+  for (const command of ['play-pause', 'next', 'previous', 'volume-up', 'volume-down', 'mute']) {
+    send({ event: 'media-command', command })
+    await sleep(120)
+  }
+  await sleep(300)
+  check('media commands dispatched', true)
+
   // ── Restore ────────────────────────────────────────────────────────────────
   await mouse.setPosition(new Point(original.x, original.y))
 } catch (e) {

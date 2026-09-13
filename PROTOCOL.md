@@ -279,11 +279,13 @@ context menu).
 
 **Scroll (Android → Windows):** vertical scroll amount in logical pixels,
 accumulated from a two-finger drag. Positive `dy` means fingers moved
-down → scroll down (Windows precision-touchpad default direction). The
-host converts pixels into high-resolution wheel units (120 units per
-notch, ~2.4 per pixel) and emits them continuously as sub-notch deltas —
-the same kind of stream a precision touchpad produces — so scrolling is
-smooth rather than notch-by-notch. Fractional `dy` values are allowed.
+down. The host applies *natural* scrolling (like a laptop touchpad):
+moving fingers down scrolls content up (reveals content above), moving
+fingers up scrolls content down. Pixels are converted into
+high-resolution wheel units (120 units per notch, ~2.4 per pixel) and
+emitted continuously as sub-notch deltas — the same kind of stream a
+precision touchpad produces — so scrolling is smooth rather than
+notch-by-notch. Fractional `dy` values are allowed.
 
 ```json
 {
@@ -313,6 +315,58 @@ a reconnect. Range 0.5–3.0; default 1.8.
   "payload": {
     "event": "set-sensitivity",
     "value": 1.8
+  }
+}
+```
+
+**Key input (Android → Windows):** typed text from the Remote keyboard
+tab — usually a single character per keystroke, streamed as typed. The
+host commits the characters to whatever window currently has focus.
+No modifier keys (Ctrl/Alt/Shift combos) in this pass.
+
+```json
+{
+  "eventId": "...",
+  "type": "remote-input",
+  "origin": "android",
+  "timestamp": "...",
+  "payload": {
+    "event": "key-input",
+    "text": "h"
+  }
+}
+```
+
+**Key special (Android → Windows):** a non-character key tap. Currently
+`enter`, `backspace`, and `space`.
+
+```json
+{
+  "eventId": "...",
+  "type": "remote-input",
+  "origin": "android",
+  "timestamp": "...",
+  "payload": {
+    "event": "key-special",
+    "key": "enter"
+  }
+}
+```
+
+**Media command (Android → Windows):** a media key tap. The host injects
+the corresponding media/volume key, which applies to whatever app
+currently has media focus (volume keys go to the OS mixer). Commands:
+`play-pause`, `next`, `previous`, `volume-up`, `volume-down`, `mute`.
+
+```json
+{
+  "eventId": "...",
+  "type": "remote-input",
+  "origin": "android",
+  "timestamp": "...",
+  "payload": {
+    "event": "media-command",
+    "command": "play-pause"
   }
 }
 ```

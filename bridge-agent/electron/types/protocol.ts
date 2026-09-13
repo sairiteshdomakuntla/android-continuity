@@ -158,6 +158,24 @@ export interface RemoteSetSensitivityPayload {
   value: number
 }
 
+/** Android → Windows: typed text (one or more characters, no modifiers). */
+export interface RemoteKeyInputPayload {
+  event: 'key-input'
+  text: string
+}
+
+/** Android → Windows: non-character key tap. */
+export interface RemoteKeySpecialPayload {
+  event: 'key-special'
+  key: 'enter' | 'backspace' | 'space'
+}
+
+/** Android → Windows: media key command, applies to the app with media focus. */
+export interface RemoteMediaCommandPayload {
+  event: 'media-command'
+  command: 'play-pause' | 'next' | 'previous' | 'volume-up' | 'volume-down' | 'mute'
+}
+
 /** Windows → Android: open the Remote (trackpad) screen on the phone. */
 export interface RemoteOpenPayload {
   event: 'open-remote'
@@ -168,4 +186,7 @@ export type RemoteInputPayload =
   | RemoteMouseClickPayload
   | RemoteScrollPayload
   | RemoteSetSensitivityPayload
+  | RemoteKeyInputPayload
+  | RemoteKeySpecialPayload
+  | RemoteMediaCommandPayload
   | RemoteOpenPayload

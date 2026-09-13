@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../services/remote_input_service.dart';
 import '../services/remote_prefs_service.dart';
@@ -8,25 +9,36 @@ import '../services/socket_service.dart';
 import '../theme/bridge_icons.dart';
 import '../theme/bridge_theme.dart';
 
-/// "Phone as Remote" — stage 1: trackpad surface.
+/// "Phone as Remote" — trackpad, keyboard, and media control.
 ///
+/// Trackpad tab:
 ///   • Single-finger drag on the surface  → relative mouse movement
-///   • Two-finger drag on the surface     → vertical scroll
+///   • Two-finger drag on the surface     → vertical scroll (natural
+///     direction: fingers down scrolls content up, like a laptop)
 ///   • Quick single-finger tap             → left click
 ///   • Quick two-finger tap                → right click
 ///   • Left Click / Right Click buttons    → mouse clicks (always available)
 ///
-/// Pointer events are read raw (Listener, no gesture arena) for the lowest
-/// possible latency, coalesced to one wire message per ~16 ms flush.
+/// Keyboard tab:
+///   • A focused, minimal text field streams each character to the PC as
+///     it is typed; Enter/Backspace are sent as key specials. The field
+///     stays cleared — there's no persistent visible text.
+///
+/// Media tab:
+///   • Play/pause, next, previous, volume up/down, mute — sent as media
+///     key commands for whatever app has media focus on the PC.
+///
+/// Trackpad pointer events are read raw (Listener, no gesture arena) for
+/// the lowest possible latency, coalesced to one wire message per ~16 ms
+/// flush.
 ///
 /// Taps are told apart from drags/scrolls with a slop + time window:
 /// nothing is emitted until finger travel exceeds [_tapSlopPx], and a
 /// click only fires after the whole gesture ends within
 /// [_tapMaxDuration] — so a deliberate drag/scroll can never also fire a
 /// click at its start, and a tap never moves the cursor or scrolls first.
-///
-/// The bottom tab bar is the shell for the later Keyboard and Media passes;
-/// both are visibly greyed out as placeholders for now.
+enum _RemoteTabId { trackpad, keyboard, media }
+
 class RemoteScreen extends StatefulWidget {
   const RemoteScreen({super.key});
 
@@ -75,6 +87,22 @@ class _RemoteScreenState extends State<RemoteScreen> {
 
   bool _dragging = false;
 
+  // ── Tabs ────────────────────────────────────────────────────────────────────
+  _RemoteTabId _selectedTab = _RemoteTabId.trackpad;
+
+  // ── Keyboard tab state ──────────────────────────────────────────────────────
+  final TextEditingController _kbController = TextEditingController();
+  final FocusNode _kbFieldFocus = FocusNode();
+  final FocusNode _kbRawKeys = FocusNode(debugLabel: 'kb-raw-keys');
+  String _lastKbText = '';
+  bool _clearingKbField = false;
+
+  // Dedup guard: one physical key press can surface both as a raw
+  // KeyEvent and as a text/action event; drop the echo within 50 ms.
+  // Auto-repeat (KeyRepeatEvent) bypasses this on purpose.
+  String? _lastSpecialKey;
+  int _lastSpecialAt = 0;
+
   // ── Cursor sensitivity (movement only; persisted locally) ───────────────────
   double _sensitivity = RemotePrefsService.defaultSensitivity;
   Timer? _sensSendTimer;
@@ -110,6 +138,9 @@ class _RemoteScreenState extends State<RemoteScreen> {
     _flushTimer = null;
     _sensSendTimer?.cancel();
     _sensSendTimer = null;
+    _kbController.dispose();
+    _kbFieldFocus.dispose();
+    _kbRawKeys.dispose();
     super.dispose();
   }
 
@@ -252,6 +283,117 @@ class _RemoteScreenState extends State<RemoteScreen> {
     _tapCancelled = false;
   }
 
+  // ── Tab switching ───────────────────────────────────────────────────────────
+
+  void _selectTab(_RemoteTabId tab) {
+    if (tab == _selectedTab) return;
+    setState(() {
+      _selectedTab = tab;
+      if (tab != _RemoteTabId.trackpad) {
+        // End any in-flight trackpad gesture cleanly so nothing dangles.
+        _pointers.clear();
+        _scrollAvgY = null;
+        _resetGesture();
+        _dragging = false;
+      }
+    });
+    _flushNow();
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    if (tab == _RemoteTabId.keyboard) {
+      // Focus the field (opens the soft keyboard) once the tab has built.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _selectedTab == _RemoteTabId.keyboard) {
+          _kbFieldFocus.requestFocus();
+        }
+      });
+    } else {
+      // Leaving the keyboard tab: dismiss the soft keyboard.
+      _kbFieldFocus.unfocus();
+    }
+  }
+
+  // ── Keyboard tab ────────────────────────────────────────────────────────────
+
+  void _sendKeySpecial(String key, {bool repeat = false}) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (!repeat && key == _lastSpecialKey && now - _lastSpecialAt < 50) {
+      return; // echo of the same physical press (KeyEvent + action)
+    }
+    _lastSpecialKey = key;
+    _lastSpecialAt = now;
+    RemoteInputService.instance.sendKeySpecial(key);
+  }
+
+  /// Raw key events — catches Backspace/Enter while the field is empty
+  /// (the text-diff path can't see those, since there is no text to
+  /// change). Events bubble up from the focused field, so these only
+  /// arrive when the field itself left them unhandled.
+  void _onRawKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.backspace) {
+      _sendKeySpecial('backspace', repeat: event is KeyRepeatEvent);
+    } else if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      _sendKeySpecial('enter', repeat: event is KeyRepeatEvent);
+    }
+  }
+
+  /// Streams each typed character to the PC as it arrives; the field is
+  /// cleared immediately afterwards so no visible text accumulates.
+  void _onKbFieldChanged(String value) {
+    if (_clearingKbField) return;
+    if (value == _lastKbText) return;
+
+    final prev = _lastKbText;
+    _lastKbText = value;
+
+    if (value.length > prev.length && value.startsWith(prev)) {
+      // Characters inserted at the end — the normal typing path.
+      final inserted = value.substring(prev.length);
+      final pending = StringBuffer();
+      for (final ch in inserted.runes) {
+        if (ch == 0x0A || ch == 0x0D) {
+          // Some IMEs commit Enter as a newline character.
+          if (pending.isNotEmpty) {
+            RemoteInputService.instance.sendKeyInput(pending.toString());
+            pending.clear();
+          }
+          _sendKeySpecial('enter');
+        } else {
+          pending.writeCharCode(ch);
+        }
+      }
+      if (pending.isNotEmpty) {
+        RemoteInputService.instance.sendKeyInput(pending.toString());
+      }
+    } else if (value.length < prev.length && prev.startsWith(value)) {
+      // Characters deleted from the end (field still had text).
+      for (var i = 0; i < prev.length - value.length; i++) {
+        _sendKeySpecial('backspace');
+      }
+    }
+    // Anything else (mid-word autocorrect replacement etc.) is ignored —
+    // the field is cleared immediately so state never accumulates.
+
+    _clearKbField();
+  }
+
+  void _clearKbField() {
+    _clearingKbField = true;
+    _kbController.clear();
+    _lastKbText = '';
+    _clearingKbField = false;
+  }
+
+  void _onKbFieldSubmitted(String value) {
+    _sendKeySpecial('enter');
+    _clearKbField();
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────────
 
   String get _host {
@@ -268,13 +410,28 @@ class _RemoteScreenState extends State<RemoteScreen> {
         child: Column(
           children: [
             _buildStatusBar(),
-            Expanded(child: _buildSurface()),
-            _buildSensitivityRow(),
-            _buildClickButtons(),
+            Expanded(
+              child: switch (_selectedTab) {
+                _RemoteTabId.trackpad => _buildTrackpadTab(),
+                _RemoteTabId.keyboard => _buildKeyboardTab(),
+                _RemoteTabId.media => _buildMediaTab(),
+              },
+            ),
             _buildTabBar(),
           ],
         ),
       ),
+    );
+  }
+
+  /// Trackpad tab: surface + sensitivity + click buttons, unchanged.
+  Widget _buildTrackpadTab() {
+    return Column(
+      children: [
+        Expanded(child: _buildSurface()),
+        _buildSensitivityRow(),
+        _buildClickButtons(),
+      ],
     );
   }
 
@@ -553,8 +710,244 @@ class _RemoteScreenState extends State<RemoteScreen> {
     };
   }
 
-  /// Bottom tab bar shell — Trackpad active; Keyboard and Media arrive in a
-  /// later pass and are greyed out as placeholders.
+  // ── Keyboard tab ────────────────────────────────────────────────────────────
+
+  /// Keyboard tab: a large tappable area that keeps a minimal, focused
+  /// text field alive so the OS soft keyboard opens. Every keystroke is
+  /// streamed to the PC immediately; the field stays cleared, so only the
+  /// status indicator is persistently visible.
+  Widget _buildKeyboardTab() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      child: Container(
+        decoration: BoxDecoration(
+          color: BridgeColors.card,
+          border: Border.all(color: BridgeColors.sand),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: BridgeShadows.card,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(17),
+          child: KeyboardListener(
+            focusNode: _kbRawKeys,
+            onKeyEvent: _onRawKeyEvent,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _kbFieldFocus.requestFocus,
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: SocketService.instance.connected,
+                        builder: (context, isConnected, _) {
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 52,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  color: BridgeColors.sageSoft,
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: const BridgeIcon('keyboard',
+                                    size: 24, color: BridgeColors.sageDeep),
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 9,
+                                    height: 9,
+                                    decoration: BoxDecoration(
+                                      color: isConnected
+                                          ? BridgeColors.sage
+                                          : BridgeColors.disconnectedDot,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    isConnected
+                                        ? 'Connected — type to send to PC'
+                                        : 'Not connected',
+                                    style: const TextStyle(
+                                      fontFamily: 'NunitoSans',
+                                      fontSize: 13,
+                                      height: 1.6,
+                                      color: BridgeColors.inkSoft,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _kbController,
+                            focusNode: _kbFieldFocus,
+                            onChanged: _onKbFieldChanged,
+                            onSubmitted: _onKbFieldSubmitted,
+                            onEditingComplete: () {},
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            smartDashesType: SmartDashesType.disabled,
+                            smartQuotesType: SmartQuotesType.disabled,
+                            textInputAction: TextInputAction.send,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              fontFamily: 'NunitoSans',
+                              fontSize: 15,
+                              color: BridgeColors.ink,
+                            ),
+                            cursorColor: BridgeColors.clay,
+                            decoration: const InputDecoration(
+                              hintText: 'Type to send to PC…',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        _KbIconButton(
+                          icon: 'cornerDownLeft',
+                          onTap: () => _sendKeySpecial('enter'),
+                        ),
+                        const SizedBox(width: 8),
+                        _KbIconButton(
+                          icon: 'delete',
+                          onTap: () => _sendKeySpecial('backspace'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Media tab ───────────────────────────────────────────────────────────────
+
+  void _sendMedia(String command) {
+    RemoteInputService.instance.sendMediaCommand(command);
+  }
+
+  Widget _sectionLabel(String text) {
+    return Text(
+      text,
+      textAlign: TextAlign.center,
+      style: BridgeText.badgeCaps.copyWith(color: BridgeColors.inkSoft),
+    );
+  }
+
+  /// Media tab: six large buttons delivering media-key commands to
+  /// whatever app has media focus on the PC.
+  Widget _buildMediaTab() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: BridgeColors.card,
+          border: Border.all(color: BridgeColors.sand),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: BridgeShadows.card,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _sectionLabel('PLAYBACK'),
+            const SizedBox(height: 10),
+            // IntrinsicHeight gives the Row a bounded cross extent so
+            // CrossAxisAlignment.stretch can equalize button heights —
+            // stretch inside an unbounded-height Column would otherwise
+            // force infinite heights and blank the tab.
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _MediaButton(
+                      icon: 'skipBack',
+                      label: 'Previous',
+                      onTap: () => _sendMedia('previous'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: _MediaButton(
+                      icon: 'play',
+                      label: 'Play / Pause',
+                      hero: true,
+                      onTap: () => _sendMedia('play-pause'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _MediaButton(
+                      icon: 'skipForward',
+                      label: 'Next',
+                      onTap: () => _sendMedia('next'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            _sectionLabel('VOLUME'),
+            const SizedBox(height: 10),
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: _MediaButton(
+                      icon: 'volumeDown',
+                      label: 'Volume Down',
+                      onTap: () => _sendMedia('volume-down'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _MediaButton(
+                      icon: 'volumeX',
+                      label: 'Mute',
+                      onTap: () => _sendMedia('mute'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _MediaButton(
+                      icon: 'volumeUp',
+                      label: 'Volume Up',
+                      onTap: () => _sendMedia('volume-up'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Bottom tab bar: Trackpad / Keyboard / Media.
   Widget _buildTabBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
@@ -570,35 +963,25 @@ class _RemoteScreenState extends State<RemoteScreen> {
             _RemoteTab(
               icon: 'hand',
               label: 'Trackpad',
-              active: true,
+              active: _selectedTab == _RemoteTabId.trackpad,
+              onTap: () => _selectTab(_RemoteTabId.trackpad),
             ),
             _RemoteTab(
               icon: 'keyboard',
               label: 'Keyboard',
-              enabled: false,
-              onTap: () => _showComingSoon('Keyboard'),
+              active: _selectedTab == _RemoteTabId.keyboard,
+              onTap: () => _selectTab(_RemoteTabId.keyboard),
             ),
             _RemoteTab(
               icon: 'play',
               label: 'Media',
-              enabled: false,
-              onTap: () => _showComingSoon('Media'),
+              active: _selectedTab == _RemoteTabId.media,
+              onTap: () => _selectTab(_RemoteTabId.media),
             ),
           ],
         ),
       ),
     );
-  }
-
-  void _showComingSoon(String feature) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text('$feature remote is coming in a later update'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
   }
 }
 
@@ -606,24 +989,18 @@ class _RemoteTab extends StatelessWidget {
   final String icon;
   final String label;
   final bool active;
-  final bool enabled;
   final VoidCallback? onTap;
 
   const _RemoteTab({
     required this.icon,
     required this.label,
     this.active = false,
-    this.enabled = true,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = active
-        ? BridgeColors.ink
-        : enabled
-            ? BridgeColors.inkSoft
-            : BridgeColors.muted;
+    final color = active ? BridgeColors.ink : BridgeColors.inkSoft;
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -656,6 +1033,89 @@ class _RemoteTab extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small square icon button (Enter / Backspace) next to the keyboard
+/// tab's text field — styled like the status-bar back button.
+class _KbIconButton extends StatelessWidget {
+  final String icon;
+  final VoidCallback onTap;
+
+  const _KbIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: BridgeColors.card,
+          border: Border.all(color: BridgeColors.sand),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: BridgeIcon(icon, size: 18, color: BridgeColors.ink),
+        ),
+      ),
+    );
+  }
+}
+
+/// A media-tab command button — styled like the tab pills (card surface,
+/// sand border, soft shadow); the hero variant is clay with cream text.
+class _MediaButton extends StatelessWidget {
+  final String icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool hero;
+
+  const _MediaButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.hero = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = hero ? BridgeColors.clay : BridgeColors.card;
+    final fg = hero ? BridgeColors.creamText : BridgeColors.ink;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        curve: BridgeMotion.calm,
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 8),
+        decoration: BoxDecoration(
+          color: bg,
+          border: hero ? null : Border.all(color: BridgeColors.sand),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: hero ? BridgeShadows.card : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            BridgeIcon(icon, size: hero ? 26 : 22, color: fg),
+            const SizedBox(height: 10),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'NunitoSans',
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: fg,
+              ),
+            ),
+          ],
         ),
       ),
     );

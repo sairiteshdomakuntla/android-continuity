@@ -7,8 +7,8 @@ import 'background_service.dart';
 ///
 /// UI-isolate half of the remote-input feature:
 ///   • Sends remote-input events (mouse-move / mouse-click / scroll /
-///     set-sensitivity) to Windows through the background service's
-///     persistent socket.
+///     set-sensitivity / key-input / key-special / media-command) to
+///     Windows through the background service's persistent socket.
 ///   • Receives [event: 'open-remote'] from Windows (via BackgroundService
 ///     cross-isolate signal) and exposes it as [onOpenRemoteRequested].
 ///
@@ -65,7 +65,8 @@ class RemoteInputService {
     _send({'event': 'mouse-click', 'button': button});
   }
 
-  /// Vertical scroll. Positive [dy] = fingers moved down = scroll down.
+  /// Vertical scroll. Positive [dy] = fingers moved down. The host applies
+  /// natural (laptop-style) scrolling: fingers down scrolls content up.
   /// Fractional deltas are sent as-is; the host converts them into
   /// high-resolution wheel units for smooth (sub-notch) scrolling.
   void sendScroll(double dy) {
@@ -78,6 +79,24 @@ class RemoteInputService {
   /// whenever the slider changes, and after a reconnect.
   void sendSensitivity(double value) {
     _send({'event': 'set-sensitivity', 'value': value});
+  }
+
+  /// Typed text from the keyboard tab — usually one character per
+  /// keystroke, streamed as typed into whatever window has focus on PC.
+  void sendKeyInput(String text) {
+    if (text.isEmpty) return;
+    _send({'event': 'key-input', 'text': text});
+  }
+
+  /// Non-character key tap: 'enter', 'backspace', or 'space'.
+  void sendKeySpecial(String key) {
+    _send({'event': 'key-special', 'key': key});
+  }
+
+  /// Media command: 'play-pause', 'next', 'previous', 'volume-up',
+  /// 'volume-down', or 'mute'. Applies to the app with media focus on PC.
+  void sendMediaCommand(String command) {
+    _send({'event': 'media-command', 'command': command});
   }
 
   void _send(Map<String, dynamic> payload) {

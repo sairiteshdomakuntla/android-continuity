@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { screen as electronScreen } from 'electron'
-import { mouse, Point } from '@nut-tree-fork/nut-js'
+import { keyboard, Key, mouse, Point } from '@nut-tree-fork/nut-js'
 import { SocketService } from './SocketService.js'
 import type { BridgeMessage, RemoteInputPayload, RemoteOpenPayload } from '../types/protocol.js'
 
@@ -28,6 +28,14 @@ const DEFAULT_MOVE_SENSITIVITY = 1.8
 const SCROLL_UNITS_PER_PIXEL = 120 / 50
 
 /**
+ * Natural (laptop-touchpad-style) scrolling: dragging two fingers DOWN
+ * scrolls content UP (reveals content above), dragging UP scrolls DOWN.
+ * `dy` on the wire is finger travel direction, so the host flips the
+ * sign here — this is the single direction toggle for the feature.
+ */
+const SCROLL_NATURAL = true
+
+/**
  * If no remote move arrived for this long, re-sync the virtual cursor
  * position from the OS before the next move (so physical mouse moves
  * made in between are respected instead of being overwritten).
@@ -42,10 +50,10 @@ interface VirtualBounds {
 }
 
 /**
- * "Phone as Remote" — stage 1 (trackpad).
+ * "Phone as Remote" — trackpad, keyboard, and media control.
  *
- * Applies remote-input events from the Android app to the OS cursor via
- * nut-js (SendInput on Windows). Design notes:
+ * Applies remote-input events from the Android app to the OS via nut-js
+ * (SendInput on Windows). Design notes:
  *
  *  - Movement is relative. We keep a float "virtual" cursor position and
  *    apply each batched delta to it, then mouse.move() to the rounded
@@ -56,9 +64,10 @@ interface VirtualBounds {
  *    (summed) instead of queued one-by-one, so bursts never build up lag.
  *    Scroll deltas get the same treatment, at wheel-unit granularity.
  *  - All native ops are serialized through a single promise chain so
- *    clicks/scroll/move can never interleave mid-event.
- *  - nut-js defaults `mouse.config.autoDelayMs` to 100ms, which would add
- *    a visible delay to every click and scroll — we set it to 0.
+ *    clicks/scroll/move/typing can never interleave mid-event.
+ *  - nut-js defaults `autoDelayMs` to 100ms (mouse) / 300ms (keyboard),
+ *    which would add a visible delay to every click, scroll, and
+ *    keystroke — we set both to 0.
  */
 class RemoteInputServiceClass {
   private _started = false
@@ -119,6 +128,30 @@ class RemoteInputServiceClass {
         case 'set-sensitivity':
           this._handleSetSensitivity(Number(payload.value) || 0)
           break
+        case 'key-input':
+          this._handleKeyInput(typeof payload.text === 'string' ? payload.text : '')
+          break
+        case 'key-special': {
+          const key = payload.key
+          if (key === 'enter' || key === 'backspace' || key === 'space') {
+            this._handleKeySpecial(key)
+          }
+          break
+        }
+        case 'media-command': {
+          const command = payload.command
+          if (
+            command === 'play-pause' ||
+            command === 'next' ||
+            command === 'previous' ||
+            command === 'volume-up' ||
+            command === 'volume-down' ||
+            command === 'mute'
+          ) {
+            this._handleMediaCommand(command)
+          }
+          break
+        }
         default:
           break
       }
@@ -206,17 +239,19 @@ class RemoteInputServiceClass {
   }
 
   /**
-   * Continuous, high-resolution scrolling. Pixels are converted into
-   * wheel units (120 per notch) and emitted as soon as they reach one
-   * whole unit, so the OS receives a smooth stream of sub-notch deltas —
-   * exactly what a precision touchpad produces — instead of rare
-   * full-notch jumps. Bursts arriving within one event-loop tick are
-   * summed (same coalescing the move path uses) so lag can never build
-   * up; scroll speed is unchanged (~50 px of finger travel per notch).
+   * Continuous, high-resolution scrolling with natural direction. Pixels
+   * are converted into wheel units (120 per notch) and emitted as soon as
+   * they reach one whole unit, so the OS receives a smooth stream of
+   * sub-notch deltas — exactly what a precision touchpad produces —
+   * instead of rare full-notch jumps. Bursts arriving within one
+   * event-loop tick are summed (same coalescing the move path uses) so
+   * lag can never build up; scroll speed is unchanged (~50 px of finger
+   * travel per notch). Direction is natural/laptop-style: fingers up
+   * (dy < 0) scrolls content down — see SCROLL_NATURAL.
    */
   private _handleScroll(dy: number): void {
     if (!Number.isFinite(dy) || dy === 0) return
-    this._scrollAccum += dy * SCROLL_UNITS_PER_PIXEL
+    this._scrollAccum += (SCROLL_NATURAL ? -dy : dy) * SCROLL_UNITS_PER_PIXEL
 
     const units = Math.trunc(this._scrollAccum)
     if (units !== 0) {
@@ -268,6 +303,69 @@ class RemoteInputServiceClass {
     }
   }
 
+  /**
+   * Typed text — streamed per keystroke from the phone's keyboard tab.
+   * keyboard.type() commits each character as a unicode key event, so
+   * this reaches whatever window currently has focus. Only the length is
+   * logged, never the content (it could be a password field).
+   */
+  private _handleKeyInput(text: string): void {
+    if (text.length === 0) return
+    this._enqueue(async () => {
+      if (!(await this._ensureNative())) return
+      try {
+        await keyboard.type(text)
+        console.log(`[RemoteInput] Key input: ${text.length} char(s)`)
+      } catch (err) {
+        console.error('[RemoteInput] keyboard.type() failed:', err)
+      }
+    })
+  }
+
+  /** Non-character key taps from the phone. */
+  private _handleKeySpecial(key: 'enter' | 'backspace' | 'space'): void {
+    const nativeKey = key === 'enter' ? Key.Enter : key === 'backspace' ? Key.Backspace : Key.Space
+    this._enqueue(async () => {
+      if (!(await this._ensureNative())) return
+      try {
+        await keyboard.pressKey(nativeKey)
+        await keyboard.releaseKey(nativeKey)
+        console.log(`[RemoteInput] Key: ${key}`)
+      } catch (err) {
+        console.error(`[RemoteInput] key-special ${key} failed:`, err)
+      }
+    })
+  }
+
+  /**
+   * Media keys — delivered globally to whatever app currently holds
+   * media focus (and volume keys to the OS mixer), exactly like the
+   * corresponding physical keyboard keys.
+   */
+  private _handleMediaCommand(
+    command: 'play-pause' | 'next' | 'previous' | 'volume-up' | 'volume-down' | 'mute',
+  ): void {
+    const keyMap: Record<typeof command, Key> = {
+      'play-pause': Key.AudioPlay,
+      next: Key.AudioNext,
+      previous: Key.AudioPrev,
+      'volume-up': Key.AudioVolUp,
+      'volume-down': Key.AudioVolDown,
+      mute: Key.AudioMute,
+    }
+    const nativeKey = keyMap[command]
+    this._enqueue(async () => {
+      if (!(await this._ensureNative())) return
+      try {
+        await keyboard.pressKey(nativeKey)
+        await keyboard.releaseKey(nativeKey)
+        console.log(`[RemoteInput] Media: ${command}`)
+      } catch (err) {
+        console.error(`[RemoteInput] media-command ${command} failed:`, err)
+      }
+    })
+  }
+
   // ── Native layer ────────────────────────────────────────────────────────────
 
   /**
@@ -280,8 +378,10 @@ class RemoteInputServiceClass {
     if (this._nativeFailed) return false
 
     try {
-      // nut-js default is 100ms — would make every click/scroll feel laggy.
+      // nut-js defaults are 100ms (mouse) / 300ms (keyboard) — would make
+      // every click, scroll, and keystroke feel laggy.
       mouse.config.autoDelayMs = 0
+      keyboard.config.autoDelayMs = 0
       // mouse.move() busy-waits 1/mouseSpeed sec per call; default (1000)
       // blocks the event loop 1ms per move. 100000 -> 10us, negligible.
       mouse.config.mouseSpeed = 100000

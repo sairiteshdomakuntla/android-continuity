@@ -66,12 +66,15 @@ $allLog = @(Get-Content $outLog) + @(Get-Content $errLog)
 $native = ($allLog | Select-String -SimpleMatch '[RemoteInput] nut-js native input layer ready').Count
 $clickL = ($allLog | Select-String -SimpleMatch '[RemoteInput] Click: left').Count
 $clickR = ($allLog | Select-String -SimpleMatch '[RemoteInput] Click: right').Count
+$keys   = ($allLog | Select-String -SimpleMatch '[RemoteInput] Key input:').Count
+$specials = ($allLog | Select-String -SimpleMatch '[RemoteInput] Key: ').Count
+$media  = ($allLog | Select-String -SimpleMatch '[RemoteInput] Media: ').Count
 $fails  = ($allLog | Select-String -Pattern '\[RemoteInput\].*failed').Count
-Write-Output "app-log assertions: native-ready=$native click-left=$clickL click-right=$clickR remoteinput-failures=$fails"
+Write-Output "app-log assertions: native-ready=$native click-left=$clickL click-right=$clickR key-input=$keys key-special=$specials media=$media remoteinput-failures=$fails"
 Write-Output '=== APP LOG (filtered) ==='
-$allLog | Where-Object { $_ -match 'RemoteInput|Main\]|Dropping|Decryption' } | Select-Object -First 30
+$allLog | Where-Object { $_ -match 'RemoteInput|Main\]|Dropping|Decryption' } | Select-Object -First 40
 
-if ($clientExit -ne 0 -or $native -lt 1 -or $clickL -lt 1 -or $clickR -lt 1 -or $fails -gt 0) {
+if ($clientExit -ne 0 -or $native -lt 1 -or $clickL -lt 1 -or $clickR -lt 1 -or $keys -lt 1 -or $specials -lt 3 -or $media -lt 6 -or $fails -gt 0) {
   Write-Output 'E2E: FAILED'
   exit 1
 }
