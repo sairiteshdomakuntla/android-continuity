@@ -273,6 +273,11 @@ class SocketService {
         BackgroundService.sendCameraSignal(Map<String, dynamic>.from(msg.payload));
         return;
       }
+      if (msg.type == MessageType.remoteInput) {
+        debugPrint('[SocketService] UI Proxy: routing remote-input [${msg.payload['event']}] to BackgroundService');
+        BackgroundService.sendRemoteInput(Map<String, dynamic>.from(msg.payload));
+        return;
+      }
     }
 
     if (_socket == null || !_socket!.connected) {

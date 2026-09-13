@@ -95,7 +95,7 @@ Inside the decrypted plaintext, messages follow the standard envelope schema:
 | `timestamp` | `string` | ISO 8601 UTC timestamp of when the message was created. |
 | `payload` | `object` | Type-specific data (see below). |
 
-Valid `type` values: `clipboard | file | camera-signal | ping | notification | device`.
+Valid `type` values: `clipboard | file | camera-signal | ping | notification | device | remote-input`.
 
 ---
 
@@ -229,6 +229,106 @@ full-screen ringing overlay with a Stop action.
   "timestamp": "...",
   "payload": {
     "event": "ring"
+  }
+}
+```
+
+---
+
+### `remote-input`
+
+"Phone as Remote" — Android used as a remote input device for Windows.
+No history, no acknowledgements; events are fire-and-forget and processed
+in order of arrival.
+
+**Mouse move (Android → Windows):** relative cursor movement deltas in
+logical pixels. Emitted at a throttled rate (~60 Hz max) while a finger
+drags across the trackpad surface; the host scales deltas by a cursor
+sensitivity multiplier (default 1.8, overridable via `set-sensitivity`).
+
+```json
+{
+  "eventId": "...",
+  "type": "remote-input",
+  "origin": "android",
+  "timestamp": "...",
+  "payload": {
+    "event": "mouse-move",
+    "dx": 12,
+    "dy": -7
+  }
+}
+```
+
+**Mouse click (Android → Windows):** a single click (button down + up) of
+the given button. `right` should behave like a real right click (open a
+context menu).
+
+```json
+{
+  "eventId": "...",
+  "type": "remote-input",
+  "origin": "android",
+  "timestamp": "...",
+  "payload": {
+    "event": "mouse-click",
+    "button": "left"
+  }
+}
+```
+
+**Scroll (Android → Windows):** vertical scroll amount in logical pixels,
+accumulated from a two-finger drag. Positive `dy` means fingers moved
+down → scroll down (Windows precision-touchpad default direction). The
+host converts pixels into high-resolution wheel units (120 units per
+notch, ~2.4 per pixel) and emits them continuously as sub-notch deltas —
+the same kind of stream a precision touchpad produces — so scrolling is
+smooth rather than notch-by-notch. Fractional `dy` values are allowed.
+
+```json
+{
+  "eventId": "...",
+  "type": "remote-input",
+  "origin": "android",
+  "timestamp": "...",
+  "payload": {
+    "event": "scroll",
+    "dy": 34.5
+  }
+}
+```
+
+**Set sensitivity (Android → Windows):** cursor-movement sensitivity
+multiplier for subsequent `mouse-move` events. Affects cursor movement
+only — never scroll speed or clicks. The phone sends it when the Remote
+screen opens, whenever the user moves the sensitivity slider, and after
+a reconnect. Range 0.5–3.0; default 1.8.
+
+```json
+{
+  "eventId": "...",
+  "type": "remote-input",
+  "origin": "android",
+  "timestamp": "...",
+  "payload": {
+    "event": "set-sensitivity",
+    "value": 1.8
+  }
+}
+```
+
+**Open remote (Windows → Android):** Windows asks the phone to open the
+Remote screen (trackpad). Sent when the user taps "Remote" in the Windows
+action row.
+
+```json
+{
+  "eventId": "...",
+  "type": "remote-input",
+  "origin": "windows",
+  "timestamp": "...",
+  "payload": {
+    "event": "open-remote"
   }
 }
 ```

@@ -76,7 +76,11 @@ class SocketServiceClass {
           msg = raw as BridgeMessage
         }
 
-        console.log(`[SocketService] [RECV] [${msg.type}] ${msg.eventId} from ${msg.origin}`)
+        // remote-input runs at up to ~60 msgs/sec (mouse-move) — skip the
+        // per-message log to keep the console (and the event loop) calm.
+        if (msg.type !== 'remote-input') {
+          console.log(`[SocketService] [RECV] [${msg.type}] ${msg.eventId} from ${msg.origin}`)
+        }
 
         // Relay camera signals to local OBS Browser Source receiver
         if (msg.type === 'camera-signal') {

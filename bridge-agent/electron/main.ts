@@ -12,6 +12,7 @@ import { ClipboardHistoryService } from './services/ClipboardHistoryService.js'
 import { NotificationHistoryService } from './services/NotificationHistoryService.js'
 import { NotificationService } from './services/NotificationService.js'
 import { DeviceService } from './services/DeviceService.js'
+import { RemoteInputService } from './services/RemoteInputService.js'
 
 export { ObsManagerService, CameraSignalService }
 
@@ -209,6 +210,16 @@ ipcMain.handle('ring-phone', async () => {
   return { success: true }
 })
 
+// ── Remote input ("Phone as Remote") IPC ────────────────────────────────────
+
+ipcMain.handle('remote-open', async () => {
+  if (!SocketService.hasConnectedClients()) {
+    return { success: false, error: 'No active connection' }
+  }
+  RemoteInputService.openRemote()
+  return { success: true }
+})
+
 app.whenReady().then(async () => {
   // Initialize Clipboard History
   ClipboardHistoryService.init()
@@ -227,6 +238,9 @@ app.whenReady().then(async () => {
     win?.webContents.send('battery-updated', status)
   })
   DeviceService.start()
+
+  // Initialize Remote Input Service (phone as trackpad)
+  RemoteInputService.start()
 
   // 1. Start Socket.IO server
   const io = SocketService.start()

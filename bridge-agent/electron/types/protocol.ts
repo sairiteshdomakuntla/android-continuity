@@ -1,4 +1,4 @@
-export type MessageType = 'clipboard' | 'file' | 'camera-signal' | 'ping' | 'notification' | 'device'
+export type MessageType = 'clipboard' | 'file' | 'camera-signal' | 'ping' | 'notification' | 'device' | 'remote-input'
 export type Origin = 'android' | 'windows'
 
 export interface BridgeMessage<T = unknown> {
@@ -130,3 +130,42 @@ export interface RingPayload {
 }
 
 export type DevicePayload = BatteryUpdatePayload | RingPayload
+
+// ── Remote input ("Phone as Remote") ──────────────────────────────────────────
+
+/** Android → Windows: relative cursor movement deltas (logical pixels). */
+export interface RemoteMouseMovePayload {
+  event: 'mouse-move'
+  dx: number
+  dy: number
+}
+
+/** Android → Windows: single click (down+up) of a mouse button. */
+export interface RemoteMouseClickPayload {
+  event: 'mouse-click'
+  button: 'left' | 'right'
+}
+
+/** Android → Windows: vertical scroll. Positive dy = fingers moved down = scroll down. */
+export interface RemoteScrollPayload {
+  event: 'scroll'
+  dy: number
+}
+
+/** Android → Windows: cursor-movement sensitivity multiplier (moves only). */
+export interface RemoteSetSensitivityPayload {
+  event: 'set-sensitivity'
+  value: number
+}
+
+/** Windows → Android: open the Remote (trackpad) screen on the phone. */
+export interface RemoteOpenPayload {
+  event: 'open-remote'
+}
+
+export type RemoteInputPayload =
+  | RemoteMouseMovePayload
+  | RemoteMouseClickPayload
+  | RemoteScrollPayload
+  | RemoteSetSensitivityPayload
+  | RemoteOpenPayload

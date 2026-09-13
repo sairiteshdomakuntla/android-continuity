@@ -129,6 +129,13 @@ class BackgroundService {
     service.invoke('send_camera_signal', {'payload': payload});
   }
 
+  /// Sends a remote-input payload (trackpad mouse/scroll events) to Windows
+  /// through the background socket.
+  static void sendRemoteInput(Map<String, dynamic> payload) {
+    final service = FlutterBackgroundService();
+    service.invoke('send_remote_input', {'payload': payload});
+  }
+
   /// Requests the background service to return the latest clipboard it holds.
   static void queryLatestClipboard() {
     final service = FlutterBackgroundService();
@@ -305,6 +312,16 @@ void onStart(ServiceInstance service) async {
     });
   });
 
+  // Incoming remote-input commands from Windows (open-remote) -> forward to UI
+  SocketService.instance.onMessage(MessageType.remoteInput, (msg) {
+    final event = msg.payload['event'] as String? ?? 'unknown';
+    debugPrint('[BackgroundService] Incoming remote-input [$event] from Windows -> forwarding to UI');
+    service.invoke('remote_input_received', {
+      'eventId': msg.eventId,
+      'payload': msg.payload,
+    });
+  });
+
   // ── Device status (battery) — event-driven via BatteryService ──────────
   BatteryService.initBackground();
 
@@ -433,6 +450,28 @@ void onStart(ServiceInstance service) async {
     );
 
     debugPrint('[BackgroundService] [SEND] Outgoing camera-signal [$event] sent over connected socket (socket id: ${SocketService.instance.rawSocket?.id})');
+    await SocketService.instance.emit(msg);
+  });
+
+  // Cross-isolate UI command: Send remote-input to Windows (phone as trackpad)
+  service.on('send_remote_input').listen((data) async {
+    if (data == null) return;
+    final rawPayload = data['payload'];
+    if (rawPayload == null) return;
+    final payload = Map<String, dynamic>.from(rawPayload as Map);
+
+    if (!SocketService.instance.isConnected) {
+      debugPrint('[BackgroundService] Dropping remote-input [${payload['event']}] — socket not connected');
+      return;
+    }
+
+    final msg = BridgeMessage(
+      eventId: const Uuid().v4(),
+      type: MessageType.remoteInput,
+      origin: Origin.android,
+      timestamp: DateTime.now().toUtc().toIso8601String(),
+      payload: payload,
+    );
     await SocketService.instance.emit(msg);
   });
 

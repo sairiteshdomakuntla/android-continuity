@@ -101,6 +101,7 @@ const ICONS: Record<string, string> = {
   messageCircle: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
   smartphone: '<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/>',
   monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+  mouse: '<rect x="5" y="2" width="14" height="20" rx="7"/><path d="M12 6v4"/>',
   send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
   trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
   fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
@@ -275,6 +276,7 @@ function render(state: StatusResponse) {
         <div class="actions-row">
           <button id="btn-send-file" class="btn secondary">${icon('fileUp', 14)}<span>Send File</span></button>
           <button id="btn-ring" class="btn secondary">${icon('bell', 14)}<span>Ring Phone</span></button>
+          <button id="btn-remote" class="btn secondary">${icon('mouse', 14)}<span>Remote</span></button>
         </div>
         <div class="actions-row">
           <button id="btn-pair-new" class="btn ghost">${icon('plus', 14)}<span>Pair New</span></button>
@@ -439,6 +441,29 @@ function render(state: StatusResponse) {
       if (res && res.success === false && label) {
         label.textContent = 'Offline'
         setTimeout(() => { if (prev) label.textContent = prev }, 2000)
+      }
+    } catch {
+      if (label && prev) {
+        label.textContent = 'Offline'
+        setTimeout(() => { label.textContent = prev }, 2000)
+      }
+    }
+  })
+
+  document.querySelector('#btn-remote')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement
+    const label = btn.querySelector('span:last-child')
+    const prev = label?.textContent
+    try {
+      const res = await window.ipcRenderer.invoke('remote-open') as { success: boolean; error?: string }
+      if (res && res.success === false) {
+        if (label && prev) {
+          label.textContent = 'Offline'
+          setTimeout(() => { label.textContent = prev }, 2000)
+        }
+      } else if (label && prev) {
+        label.textContent = 'Opening…'
+        setTimeout(() => { label.textContent = prev }, 1500)
       }
     } catch {
       if (label && prev) {

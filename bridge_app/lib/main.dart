@@ -12,9 +12,11 @@ import 'services/system_channel.dart';
 import 'services/clipboard_history_service.dart';
 import 'services/notification_history_service.dart';
 import 'services/notifications_channel.dart';
+import 'services/remote_input_service.dart';
 import 'screens/scan_pair_screen.dart';
 import 'screens/share_progress_screen.dart';
 import 'screens/camera_screen.dart';
+import 'screens/remote_screen.dart';
 import 'theme/bridge_theme.dart';
 
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -39,6 +41,21 @@ void main() async {
   NotificationHistoryService.instance.init();
   FileTransferService.init(isBackgroundService: false);
   CameraService.instance.init();
+  RemoteInputService.instance.init();
+
+  RemoteInputService.instance.onOpenRemoteRequested = () {
+    if (RemoteScreen.isShown) return;
+    final nav = rootNavigatorKey.currentState;
+    if (nav == null) return;
+    debugPrint('[main] Remote open-remote received — pushing RemoteScreen');
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) => const RemoteScreen(),
+      ),
+    ).then((_) {
+      debugPrint('[main] Returned from remote-launched RemoteScreen');
+    });
+  };
 
   CameraService.instance.onStartCameraRequested = () {
     if (CameraService.instance.isStreaming.value) return;
@@ -321,6 +338,20 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
     });
   }
 
+  void _openRemote(bool isConnected) {
+    if (!isConnected) return;
+    debugPrint('[BridgeHome] Tapped "Remote" — pushing RemoteScreen');
+    Navigator.of(context)
+        .push(
+      MaterialPageRoute(
+        builder: (_) => const RemoteScreen(),
+      ),
+    )
+        .then((_) {
+      debugPrint('[BridgeHome] Returned from RemoteScreen route to BridgeHome');
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     debugPrint('[BridgeHome] build() executed — rendering home UI');
@@ -410,6 +441,14 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                               icon:
                                   BridgeIcon('refreshCw', size: 16),
                               label: const Text('Sync Now'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => _openRemote(isConnected),
+                              icon: BridgeIcon('mouse', size: 16),
+                              label: const Text('Remote'),
                             ),
                           ),
                         ],

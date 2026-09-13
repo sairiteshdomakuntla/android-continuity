@@ -6,11 +6,13 @@ enum MessageType {
   cameraSignal,
   ping,
   notification,
-  device;
+  device,
+  remoteInput;
 
   String toJson() {
     return switch (this) {
       MessageType.cameraSignal => 'camera-signal',
+      MessageType.remoteInput => 'remote-input',
       _ => name,
     };
   }
@@ -23,6 +25,7 @@ enum MessageType {
       'ping' => MessageType.ping,
       'notification' => MessageType.notification,
       'device' => MessageType.device,
+      'remote-input' => MessageType.remoteInput,
       _ => throw ArgumentError('Unknown MessageType: $value'),
     };
   }
