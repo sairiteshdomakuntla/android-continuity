@@ -17,6 +17,7 @@ import 'pairing_storage_service.dart';
 import 'event_dedupe.dart';
 import 'system_channel.dart';
 import 'notifications_channel.dart';
+import 'battery_service.dart';
 import 'widget_snapshot_service.dart';
 
 const String _kNotificationChannelId = 'bridge_foreground_service';
@@ -302,6 +303,21 @@ void onStart(ServiceInstance service) async {
       'eventId': msg.eventId,
       'payload': msg.payload,
     });
+  });
+
+  // ── Device status (battery) — event-driven via BatteryService ──────────
+  BatteryService.initBackground();
+
+  // Incoming find-my-phone ring from Windows -> ring natively at max
+  // alarm volume (works backgrounded, on silent, screen off).
+  SocketService.instance.onMessage(MessageType.device, (msg) async {
+    final event = msg.payload['event'] as String? ?? 'unknown';
+    if (event == 'ring') {
+      debugPrint('[BackgroundService] Find-my-phone RING received from Windows');
+      await SystemChannel.startRing();
+    } else {
+      debugPrint('[BackgroundService] Unknown device event from Windows: $event');
+    }
   });
 
   // ── Notification sync ──────────────────────────────────────────────────────

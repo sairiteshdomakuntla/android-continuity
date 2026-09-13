@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <!--
@@ -129,6 +130,28 @@
             android:noHistory="true"
             android:theme="@style/Theme.Bridge.Trampoline"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" />
+
+        <!-- Find-my-phone ringing overlay: full-screen Clay+Linen screen.
+             Launched via notification full-screen intent (lock-screen safe)
+             or directly when the app was recently visible. -->
+        <activity
+            android:name=".RingActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Bridge.Ring"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" />
+
+        <!-- Stop action for the ringing notification + overlay stop button.
+             Implemented in bridge_core; declared here (same APK). -->
+        <receiver
+            android:name="com.example.bridge_core.StopRingReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.bridge_app.STOP_RING" />
+            </intent-filter>
+        </receiver>
 
         <!-- FileProvider for sharing cached clipboard images with other apps -->
         <provider

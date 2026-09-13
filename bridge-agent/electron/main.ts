@@ -11,6 +11,7 @@ import { ObsManagerService } from './services/ObsManagerService.js'
 import { ClipboardHistoryService } from './services/ClipboardHistoryService.js'
 import { NotificationHistoryService } from './services/NotificationHistoryService.js'
 import { NotificationService } from './services/NotificationService.js'
+import { DeviceService } from './services/DeviceService.js'
 
 export { ObsManagerService, CameraSignalService }
 
@@ -149,6 +150,7 @@ ipcMain.handle('select-ip', async (_event, ip: string) => {
 ipcMain.handle('unpair-all', async () => {
   DeviceStorageService.clearAll()
   SocketService.setEncryptionKey(null)
+  DeviceService.clearBattery()
   const pairingInfo = await generateNewPairing()
   win?.webContents.send('pairing-state-changed', {
     isPairingActive: true,
@@ -193,6 +195,20 @@ ipcMain.handle('clear-notifications', async () => {
   return { success: true }
 })
 
+// ── Device status (battery) & find-my-phone IPC ────────────────────────────
+
+ipcMain.handle('get-battery-status', async () => {
+  return DeviceService.getBattery()
+})
+
+ipcMain.handle('ring-phone', async () => {
+  if (!SocketService.hasConnectedClients()) {
+    return { success: false, error: 'No active connection' }
+  }
+  DeviceService.ringPhone()
+  return { success: true }
+})
+
 app.whenReady().then(async () => {
   // Initialize Clipboard History
   ClipboardHistoryService.init()
@@ -205,6 +221,12 @@ app.whenReady().then(async () => {
     win?.webContents.send('notifications-updated', items)
   })
   NotificationService.start()
+
+  // Initialize Device Service (battery status + find-my-phone)
+  DeviceService.onBatteryUpdate((status) => {
+    win?.webContents.send('battery-updated', status)
+  })
+  DeviceService.start()
 
   // 1. Start Socket.IO server
   const io = SocketService.start()

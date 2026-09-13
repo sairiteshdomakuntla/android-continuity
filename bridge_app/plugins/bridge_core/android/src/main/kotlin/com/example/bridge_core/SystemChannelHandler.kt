@@ -2,12 +2,15 @@ package com.example.bridge_core
 
 import android.Manifest
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -19,6 +22,8 @@ import androidx.core.content.FileProvider
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 
 class SystemChannelHandler(
     private val context: Context,
@@ -27,6 +32,65 @@ class SystemChannelHandler(
     companion object {
         const val SYSTEM_CHANNEL = "bridge/system"
         const val NOTIF_PERM_REQUEST_CODE = 1001
+
+        private val batteryChannels = CopyOnWriteArrayList<MethodChannel>()
+        private val mainHandler = Handler(Looper.getMainLooper())
+        private val batteryReceiverRegistered = AtomicBoolean(false)
+
+        private val batteryReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action != Intent.ACTION_BATTERY_CHANGED) return
+                val state = readBatteryState(intent) ?: return
+                mainHandler.post {
+                    for (channel in batteryChannels) {
+                        try {
+                            channel.invokeMethod("onBatteryChanged", state)
+                        } catch (e: Exception) {
+                            // Channel might be detached
+                        }
+                    }
+                }
+            }
+        }
+
+        /** Reads level 0–100 + charging from a battery-changed intent. */
+        fun readBatteryState(intent: Intent): Map<String, Any>? {
+            return try {
+                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                if (level < 0 || scale <= 0) return null
+                val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                    status == BatteryManager.BATTERY_STATUS_FULL
+                mapOf(
+                    "level" to (level * 100 / scale),
+                    "isCharging" to isCharging,
+                )
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        fun registerBatteryChannel(context: Context, channel: MethodChannel) {
+            batteryChannels.add(channel)
+            // ACTION_BATTERY_CHANGED is sticky + protected: dynamic registration
+            // only, once per process. The sticky intent replays immediately.
+            if (batteryReceiverRegistered.compareAndSet(false, true)) {
+                try {
+                    context.applicationContext.registerReceiver(
+                        batteryReceiver,
+                        IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+                    )
+                } catch (e: Exception) {
+                    batteryReceiverRegistered.set(false)
+                    android.util.Log.w("SystemChannelHandler", "battery receiver failed: $e")
+                }
+            }
+        }
+
+        fun unregisterBatteryChannel(channel: MethodChannel) {
+            batteryChannels.remove(channel)
+        }
     }
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
@@ -209,6 +273,44 @@ class SystemChannelHandler(
                 } catch (e: Exception) {
                     result.error("IO", e.message, null)
                 }
+            }
+
+            // ── Battery state (one-shot read; changes stream via onBatteryChanged)
+            "getBatteryState" -> {
+                try {
+                    val sticky = context.applicationContext.registerReceiver(
+                        null,
+                        IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+                    )
+                    val state = sticky?.let { readBatteryState(it) }
+                    if (state != null) result.success(state)
+                    else result.error("UNAVAILABLE", "Battery state unavailable", null)
+                } catch (e: Exception) {
+                    result.error("BATTERY_ERROR", e.message, null)
+                }
+            }
+
+            // ── Find-my-phone ringer ──────────────────────────────────────
+            "startRing" -> {
+                try {
+                    RingManager.startRing(context.applicationContext)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("RING_ERROR", e.message, null)
+                }
+            }
+
+            "stopRing" -> {
+                try {
+                    RingManager.stopRing(context.applicationContext)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("RING_ERROR", e.message, null)
+                }
+            }
+
+            "isRinging" -> {
+                result.success(RingManager.isRinging())
             }
 
             else -> result.notImplemented()

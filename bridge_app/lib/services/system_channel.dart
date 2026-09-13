@@ -103,4 +103,58 @@ class SystemChannel {
       return null;
     }
   }
+
+  /// One-shot battery read: {"level": 0-100, "isCharging": bool} or null.
+  /// Backed by the sticky ACTION_BATTERY_CHANGED intent — no polling needed.
+  static Future<Map<String, dynamic>?> getBatteryState() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>('getBatteryState');
+      return res;
+    } catch (e) {
+      debugPrint('[SystemChannel] getBatteryState error: $e');
+      return null;
+    }
+  }
+
+  /// Registers a callback for native battery-change events (forwarded from
+  /// the ACTION_BATTERY_CHANGED receiver registered in the plugin).
+  /// The background isolate uses this for throttled battery-update emits.
+  static void setBatteryListener(void Function(Map<String, dynamic> state) onEvent) {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onBatteryChanged') {
+        try {
+          final map = Map<String, dynamic>.from(call.arguments as Map);
+          onEvent(map);
+        } catch (e) {
+          debugPrint('[SystemChannel] Error parsing onBatteryChanged: $e');
+        }
+      }
+    });
+  }
+
+  /// Starts the find-my-phone ringtone at max alarm volume (works on silent).
+  /// Returns true if the ring actually started.
+  static Future<bool> startRing() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final res = await _channel.invokeMethod<bool>('startRing');
+      return res ?? false;
+    } catch (e) {
+      debugPrint('[SystemChannel] startRing error: $e');
+      return false;
+    }
+  }
+
+  /// Stops the find-my-phone ringtone immediately.
+  static Future<bool> stopRing() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final res = await _channel.invokeMethod<bool>('stopRing');
+      return res ?? false;
+    } catch (e) {
+      debugPrint('[SystemChannel] stopRing error: $e');
+      return false;
+    }
+  }
 }

@@ -29,4 +29,9 @@
         <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowAnimationStyle">@null</item>
     </style>
+    <!-- Warm linen theme for the find-my-phone ringing overlay -->
+    <style name="Theme.Bridge.Ring" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">#F4EEE3</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
 </resources>

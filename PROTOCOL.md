@@ -95,6 +95,8 @@ Inside the decrypted plaintext, messages follow the standard envelope schema:
 | `timestamp` | `string` | ISO 8601 UTC timestamp of when the message was created. |
 | `payload` | `object` | Type-specific data (see below). |
 
+Valid `type` values: `clipboard | file | camera-signal | ping | notification | device`.
+
 ---
 
 ## 4. Message Types
@@ -182,6 +184,51 @@ Transfers notification events between Android and Windows:
     "timestamp": "2026-09-11T18:20:00.000Z",
     "hasReplyAction": true,
     "hasQuickActions": []
+  }
+}
+```
+
+---
+
+### `device`
+
+Device-status and find-my-phone signalling. No history is kept — each side
+retains only the most recent value.
+
+**Battery update (Android → Windows):**
+
+Sent on service start, on socket (re)connect, when the level moves by more
+than ~2%, or when charging state flips. Event-driven via
+`ACTION_BATTERY_CHANGED`, never polled.
+
+```json
+{
+  "eventId": "...",
+  "type": "device",
+  "origin": "android",
+  "timestamp": "...",
+  "payload": {
+    "event": "battery-update",
+    "level": 78,
+    "isCharging": false
+  }
+}
+```
+
+**Ring (Windows → Android):**
+
+Windows sends this when the user clicks "Ring Phone". Android plays an
+alarm-stream ringtone at max volume for ~15s (even on silent) and shows a
+full-screen ringing overlay with a Stop action.
+
+```json
+{
+  "eventId": "...",
+  "type": "device",
+  "origin": "windows",
+  "timestamp": "...",
+  "payload": {
+    "event": "ring"
   }
 }
 ```

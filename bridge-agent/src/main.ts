@@ -64,9 +64,16 @@ interface FileSendProgress {
   error?: string
 }
 
+interface BatteryStatus {
+  level: number
+  isCharging: boolean
+  updatedAt: string
+}
+
 const appEl = document.querySelector<HTMLDivElement>('#app')!
 let clipboardHistory: ClipboardHistoryItem[] = []
 let notificationsList: NotificationItem[] = []
+let batteryStatus: BatteryStatus | null = null
 let replyDrafts: Record<string, string> = {}
 let replySubmitting: Record<string, boolean> = {}
 let lastStatus: StatusResponse | null = null
@@ -100,6 +107,8 @@ const ICONS: Record<string, string> = {
   shieldCheck: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
   sprout: '<path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-3.2.3-4.3 1-4.9 2z"/>',
   wifi: '<path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/>',
+  batteryMedium: '<rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/><line x1="6" x2="6" y1="11" y2="13"/><line x1="10" x2="10" y1="11" y2="13"/><line x1="14" x2="14" y1="11" y2="13"/>',
+  batteryCharging: '<path d="M14.856 6H16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.935"/><path d="M5.14 18H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2.936"/><path d="m11 7-3 5h4l-3 5"/><line x1="22" x2="22" y1="11" y2="13"/>',
 }
 
 function icon(name: string, size = 14): string {
@@ -250,7 +259,11 @@ function render(state: StatusResponse) {
           <h1 class="status-main">${hasDevices ? escapeHtml(device!.name || 'Android Device') : 'Not Connected'}</h1>
         </div>
         ${hasDevices
-      ? `<span class="enc-badge">${icon('shieldCheck', 11)}<span>Encrypted · AES-256-GCM</span></span>`
+      ? `<span class="enc-badge">${icon('shieldCheck', 11)}<span>Encrypted · AES-256-GCM</span></span>
+        ${batteryStatus
+          ? `<span class="battery-badge ${batteryStatus.isCharging ? 'charging' : ''}">${icon(batteryStatus.isCharging ? 'batteryCharging' : 'batteryMedium', 13)}<span>${batteryStatus.level}%${batteryStatus.isCharging ? ' · Charging' : ''}</span></span>`
+          : ''
+        }`
       : `<p class="status-sub">Pair your phone to start syncing</p>`
     }
       </section>
@@ -261,6 +274,9 @@ function render(state: StatusResponse) {
         <button id="btn-camera" class="btn primary">${icon('camera', 15)}<span>Phone Camera</span></button>
         <div class="actions-row">
           <button id="btn-send-file" class="btn secondary">${icon('fileUp', 14)}<span>Send File</span></button>
+          <button id="btn-ring" class="btn secondary">${icon('bell', 14)}<span>Ring Phone</span></button>
+        </div>
+        <div class="actions-row">
           <button id="btn-pair-new" class="btn ghost">${icon('plus', 14)}<span>Pair New</span></button>
           <button id="btn-unpair" class="btn danger-ghost"><span>Unpair</span></button>
         </div>
@@ -412,6 +428,24 @@ function render(state: StatusResponse) {
 
   document.querySelector('#btn-send-file')?.addEventListener('click', async () => {
     await window.ipcRenderer.invoke('send-file')
+  })
+
+  document.querySelector('#btn-ring')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement
+    const label = btn.querySelector('span:last-child')
+    const prev = label?.textContent
+    try {
+      const res = await window.ipcRenderer.invoke('ring-phone') as { success: boolean; error?: string }
+      if (res && res.success === false && label) {
+        label.textContent = 'Offline'
+        setTimeout(() => { if (prev) label.textContent = prev }, 2000)
+      }
+    } catch {
+      if (label && prev) {
+        label.textContent = 'Offline'
+        setTimeout(() => { label.textContent = prev }, 2000)
+      }
+    }
   })
 
   document.querySelector('#ip-select')?.addEventListener('change', async (e) => {
@@ -577,6 +611,15 @@ async function refresh() {
       }
     } catch { }
 
+    try {
+      const battery = (await window.ipcRenderer.invoke('get-battery-status')) as BatteryStatus | null
+      if (battery && typeof battery.level === 'number') {
+        batteryStatus = battery
+      } else if (battery === null) {
+        batteryStatus = null
+      }
+    } catch { }
+
     render(status)
   } catch (e) {
     console.error('Failed to get status:', e)
@@ -607,6 +650,13 @@ window.ipcRenderer.on('notifications-updated', (_event, items: NotificationItem[
     if (lastStatus) {
       render(lastStatus)
     }
+  }
+})
+
+window.ipcRenderer.on('battery-updated', (_event, status: BatteryStatus | null) => {
+  batteryStatus = status && typeof status.level === 'number' ? status : null
+  if (lastStatus) {
+    render(lastStatus)
   }
 })
 

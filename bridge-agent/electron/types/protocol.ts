@@ -1,4 +1,4 @@
-export type MessageType = 'clipboard' | 'file' | 'camera-signal' | 'ping' | 'notification'
+export type MessageType = 'clipboard' | 'file' | 'camera-signal' | 'ping' | 'notification' | 'device'
 export type Origin = 'android' | 'windows'
 
 export interface BridgeMessage<T = unknown> {
@@ -115,3 +115,18 @@ export type NotificationPayload =
   | NotificationReplyPayload
   | NotificationReplyFailedPayload
   | NotificationDismissRequestPayload
+
+// ── Device status (battery) & find-my-phone ───────────────────────────────
+
+export interface BatteryUpdatePayload {
+  event: 'battery-update'
+  /** Battery level 0–100 */
+  level: number
+  isCharging: boolean
+}
+
+export interface RingPayload {
+  event: 'ring'
+}
+
+export type DevicePayload = BatteryUpdatePayload | RingPayload
