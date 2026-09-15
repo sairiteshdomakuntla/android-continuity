@@ -81,6 +81,8 @@ let lastStatus: StatusResponse | null = null
 // ── Render-only UI state (no IPC/backend impact) ─────────────────────────────
 let activeTab: 'notifications' | 'clipboard' = 'notifications'
 const expandedReplies = new Set<string>()
+let dragCounter = 0
+let isDragging = false
 
 // ── Lucide icons (bundled inline SVG, 2px stroke — no CDN dependency) ─────────
 const ICONS: Record<string, string> = {
@@ -400,6 +402,15 @@ function render(state: StatusResponse) {
       </div>
       `
     }
+    </div>
+
+    <div id="drop-overlay" class="drop-overlay ${isDragging ? 'active' : ''}">
+      <div class="drop-zone ${hasDevices ? '' : 'unpaired'}">
+        <div class="drop-zone-icon-wrap">${icon(hasDevices ? 'fileUp' : 'sprout', 26)}</div>
+        <h2 class="drop-zone-title" id="drop-zone-title">${hasDevices ? `Drop to send to ${escapeHtml(device?.name || 'Android Device')}` : 'Pair a device first'}</h2>
+        <p class="drop-zone-sub" id="drop-zone-sub">${hasDevices ? 'Release to transfer sequentially' : 'Connect your phone to send files'}</p>
+        <span class="drop-zone-badge" id="drop-zone-badge">${hasDevices ? `${icon('shieldCheck', 11)}<span>Encrypted · AES-256-GCM</span>` : `${icon('sprout', 11)}<span>No device paired</span>`}</span>
+      </div>
     </div>
   `
 
@@ -742,3 +753,109 @@ window.ipcRenderer.on('file-progress', (_event, progress: FileSendProgress) => {
 
 // Initial load
 refresh()
+
+// ── Magic Drop: Drag-and-drop file sending ────────────────────────────────────
+
+function updateDropZoneUI() {
+  const overlay = document.getElementById('drop-overlay')
+  const zone = overlay?.querySelector('.drop-zone')
+  const iconWrap = overlay?.querySelector('.drop-zone-icon-wrap')
+  const titleEl = document.getElementById('drop-zone-title')
+  const subEl = document.getElementById('drop-zone-sub')
+  const badgeEl = document.getElementById('drop-zone-badge')
+  if (!overlay || !zone || !titleEl || !subEl || !badgeEl || !iconWrap) return
+
+  const hasDevices = (lastStatus?.devices?.length ?? 0) > 0
+  const device = hasDevices ? lastStatus!.devices[0] : null
+  const deviceName = device?.name || 'Android Device'
+
+  if (hasDevices) {
+    zone.classList.remove('unpaired')
+    iconWrap.innerHTML = icon('fileUp', 26)
+    titleEl.textContent = `Drop to send to ${deviceName}`
+    subEl.textContent = 'Release to transfer sequentially'
+    badgeEl.innerHTML = `${icon('shieldCheck', 11)}<span>Encrypted · AES-256-GCM</span>`
+  } else {
+    zone.classList.add('unpaired')
+    iconWrap.innerHTML = icon('sprout', 26)
+    titleEl.textContent = 'Pair a device first'
+    subEl.textContent = 'Connect your phone to send files'
+    badgeEl.innerHTML = `${icon('sprout', 11)}<span>No device paired</span>`
+  }
+}
+
+window.addEventListener('dragenter', (e) => {
+  e.preventDefault()
+  if (!e.dataTransfer?.types?.includes('Files')) return
+  dragCounter++
+  if (dragCounter === 1) {
+    isDragging = true
+    updateDropZoneUI()
+    const overlay = document.getElementById('drop-overlay')
+    overlay?.classList.add('active')
+  }
+})
+
+window.addEventListener('dragover', (e) => {
+  e.preventDefault()
+  if (e.dataTransfer) {
+    const hasDevices = (lastStatus?.devices?.length ?? 0) > 0
+    e.dataTransfer.dropEffect = hasDevices ? 'copy' : 'none'
+  }
+})
+
+window.addEventListener('dragleave', (e) => {
+  e.preventDefault()
+  dragCounter--
+  if (dragCounter <= 0) {
+    dragCounter = 0
+    isDragging = false
+    const overlay = document.getElementById('drop-overlay')
+    overlay?.classList.remove('active')
+  }
+})
+
+window.addEventListener('dragend', () => {
+  dragCounter = 0
+  isDragging = false
+  const overlay = document.getElementById('drop-overlay')
+  overlay?.classList.remove('active')
+})
+
+window.addEventListener('blur', () => {
+  dragCounter = 0
+  isDragging = false
+  const overlay = document.getElementById('drop-overlay')
+  overlay?.classList.remove('active')
+})
+
+window.addEventListener('drop', async (e) => {
+  e.preventDefault()
+  dragCounter = 0
+  isDragging = false
+  const overlay = document.getElementById('drop-overlay')
+  overlay?.classList.remove('active')
+
+  const hasDevices = (lastStatus?.devices?.length ?? 0) > 0
+  if (!hasDevices) {
+    // Drop ignored when unpaired — overlay already warned the user to pair first
+    return
+  }
+
+  const files = Array.from(e.dataTransfer?.files || [])
+  const filePaths: string[] = []
+  for (const file of files) {
+    const p = (file as any).path
+    if (typeof p === 'string' && p.length > 0) {
+      filePaths.push(p)
+    }
+  }
+
+  if (filePaths.length > 0) {
+    try {
+      await window.ipcRenderer.invoke('send-file', filePaths)
+    } catch (err) {
+      console.error('Failed to send dropped files:', err)
+    }
+  }
+})

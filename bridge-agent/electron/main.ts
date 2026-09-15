@@ -289,7 +289,7 @@ app.whenReady().then(async () => {
 
 // ── File transfer IPC ─────────────────────────────────────────────────────────
 
-ipcMain.handle('send-file', async () => {
+ipcMain.handle('send-file', async (_event, directFilePaths?: string[]) => {
   if (!win) return { canceled: true }
   if (!SocketService.hasConnectedClients()) {
     dialog.showErrorBox(
@@ -298,17 +298,23 @@ ipcMain.handle('send-file', async () => {
     )
     return { canceled: false, error: 'No active connection' }
   }
-  const result = await dialog.showOpenDialog(win, {
-    title: 'Send file to Android',
-    properties: ['openFile', 'multiSelections'],
-  })
-  if (result.canceled || result.filePaths.length === 0) return { canceled: true }
+
+  let filePaths = directFilePaths
+  if (!filePaths || filePaths.length === 0) {
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Send file to Android',
+      properties: ['openFile', 'multiSelections'],
+    })
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true }
+    filePaths = result.filePaths
+  }
+
   try {
     // Send sequentially
-    for (const filePath of result.filePaths) {
+    for (const filePath of filePaths) {
       await FileTransferService.sendFile(filePath)
     }
-    return { canceled: false, files: result.filePaths }
+    return { canceled: false, files: filePaths }
   } catch (err: any) {
     dialog.showErrorBox('Transfer Failed', err?.message ?? String(err))
     return { canceled: false, error: err?.message ?? String(err) }

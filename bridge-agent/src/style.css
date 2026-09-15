@@ -1013,3 +1013,104 @@ body {
     opacity: 1;
   }
 }
+
+/* ── Magic Drop: drag-and-drop overlay ────────────────────────── */
+.drop-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 100;
+  border-radius: 20px;
+  background: rgba(244, 238, 227, 0.94);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s var(--ease-calm), visibility 0.2s var(--ease-calm);
+}
+
+.drop-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.drop-zone {
+  width: 100%;
+  height: 100%;
+  border: 2px dashed var(--clay);
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  text-align: center;
+  background: rgba(252, 249, 243, 0.7);
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.2s var(--ease-calm), background-color 0.2s var(--ease-calm);
+}
+
+.drop-zone.unpaired {
+  border-color: var(--sand);
+  background: rgba(237, 228, 210, 0.4);
+}
+
+.drop-zone-icon-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--clay-soft);
+  color: var(--clay-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(188, 94, 54, 0.12);
+  transition: background-color 0.2s var(--ease-calm), color 0.2s var(--ease-calm);
+}
+
+.drop-zone.unpaired .drop-zone-icon-wrap {
+  background: var(--sand-soft);
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.drop-zone-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 6px 0;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.drop-zone-sub {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.drop-zone-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--clay-ink);
+  background: var(--clay-soft);
+  padding: 4px 11px;
+  border-radius: 9999px;
+  margin-top: 14px;
+}
+
+.drop-zone.unpaired .drop-zone-badge {
+  color: var(--muted);
+  background: var(--sand-soft);
+}
+
