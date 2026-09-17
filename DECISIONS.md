@@ -29,9 +29,9 @@ allowed = isDefaultDeviceAndUidFocused(intendingDeviceId, uid)   // WindowManage
 
 The user experience for Android→Windows clipboard sync is:
 
-> Copy in any app → Open Bridge → (Bridge reads clipboard on resume) → Paste on Windows
+> Copy in any app → tap **Sync Now** on the Bridge notification (or open Bridge) → Paste on Windows
 
-Bridge communicates this explicitly in its UI. There is no implication that background sync is active.
+The notification path uses a transient transparent trampoline Activity (`ClipSyncActivity`, no special permissions): it briefly holds real window focus, which satisfies the same `isUidFocused` gate as opening the app. Reads route through the same pipeline (dedupe → socket emit → history) as the resume path.
 
 **TODO (future):** True background clipboard access for third-party apps may be investigated using privileged mechanisms (e.g., Shizuku + shell `appops set <package> READ_CLIPBOARD allow`). Do not implement in v1.
 

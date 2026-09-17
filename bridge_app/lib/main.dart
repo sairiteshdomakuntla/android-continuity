@@ -1073,7 +1073,7 @@ class _ConnectionCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     connected
-                        ? 'Background sync is on — you can close this app.'
+                        ? 'Background sync is on — copy on your phone, then tap Sync Now on the Bridge notification.'
                         : 'Bridge reconnects automatically when your PC is back on Wi-Fi.',
                     style: BridgeText.caption,
                   ),
@@ -1477,7 +1477,7 @@ class _HowItWorksCard extends StatelessWidget {
             style: BridgeText.caption,
           ),
           SizedBox(height: 12),
-          _HowRow(icon: 'clipboardList', text: 'Copy on either device — open Bridge to push it to your PC.'),
+          _HowRow(icon: 'clipboardList', text: 'Copy on your phone — tap Sync Now on the Bridge notification to push it to your PC.'),
           SizedBox(height: 8),
           _HowRow(icon: 'bell', text: 'Phone notifications appear on your PC automatically.'),
           SizedBox(height: 8),
