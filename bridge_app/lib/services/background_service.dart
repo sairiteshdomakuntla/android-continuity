@@ -19,6 +19,7 @@ import 'system_channel.dart';
 import 'notifications_channel.dart';
 import 'battery_service.dart';
 import 'widget_snapshot_service.dart';
+import 'discovery_service.dart';
 
 const String _kNotificationChannelId = 'bridge_foreground_service';
 const String _kFileNotificationChannelId = 'bridge_file_transfers';
@@ -96,9 +97,15 @@ class BackgroundService {
   }
 
   /// Tells the background service to reload pairing keys and reconnect the socket.
-  static void restartSocket() {
+  /// If [forceDiscovery] is true, proactively discovers the PC on the LAN.
+  static void restartSocket({bool forceDiscovery = false, String? manualIp, int? manualPort}) {
     final service = FlutterBackgroundService();
-    service.invoke('restart_socket');
+    final map = <String, dynamic>{
+      'forceDiscovery': forceDiscovery,
+    };
+    if (manualIp != null) map['manualIp'] = manualIp;
+    if (manualPort != null) map['manualPort'] = manualPort;
+    service.invoke('restart_socket', map);
   }
 
   /// Sends clipboard text to Windows through the background socket.
@@ -192,18 +199,101 @@ void onStart(ServiceInstance service) async {
     });
   });
 
-  // Function to establish persistent socket connection
-  Future<void> connectPersistentSocket() async {
-    final pairing = await PairingStorageService.instance.getPairing();
-    if (pairing != null) {
-      debugPrint('[BackgroundService] Found pairing for: ${pairing.serverUrl}. Connecting...');
+  bool isConnectingOrSearching = false;
+
+  // Function to establish persistent socket connection with LAN discovery fallback
+  Future<void> connectPersistentSocket({bool forceDiscovery = false}) async {
+    if (isConnectingOrSearching) {
+      debugPrint('[BackgroundService] Already connecting or searching for host. Skipping concurrent attempt.');
+      return;
+    }
+    isConnectingOrSearching = true;
+
+    try {
+      final pairing = await PairingStorageService.instance.getPairing();
+      if (pairing == null) {
+        debugPrint('[BackgroundService] No active pairing stored.');
+        service.invoke('reconnect_state', {'state': 'unpaired'});
+        return;
+      }
+
       final keyBytes = Uint8List.fromList(base64Decode(pairing.pairingKey));
       SocketService.instance.setEncryptionKey(keyBytes);
-      SocketService.instance.connect(pairing.serverUrl);
-    } else {
-      debugPrint('[BackgroundService] No active pairing stored.');
+
+      service.invoke('reconnect_state', {
+        'state': 'connecting',
+        'ip': pairing.ip,
+        'port': pairing.port,
+      });
+
+      var targetIp = pairing.ip;
+      var targetPort = pairing.port;
+
+      // Check if stored IP is reachable
+      bool reachable = !forceDiscovery && await DiscoveryService.isHostReachable(
+        targetIp,
+        targetPort,
+        timeout: const Duration(milliseconds: 1500),
+      );
+
+      if (!reachable) {
+        debugPrint('[BackgroundService] Host ${pairing.serverUrl} unreachable. Triggering LAN discovery...');
+        service.invoke('reconnect_state', {
+          'state': 'searching_lan',
+          'lastKnownIp': pairing.ip,
+          'port': pairing.port,
+        });
+
+        final discovered = await DiscoveryService.findBridgeHost(
+          lastKnownIp: pairing.ip,
+          port: pairing.port,
+        );
+
+        if (discovered != null) {
+          targetIp = discovered.ip;
+          targetPort = discovered.port;
+          debugPrint('[BackgroundService] Discovered Bridge Agent at $targetIp:$targetPort. Updating stored pairing.');
+          await PairingStorageService.instance.updateHost(targetIp, targetPort);
+          service.invoke('reconnect_state', {
+            'state': 'found',
+            'ip': targetIp,
+            'port': targetPort,
+          });
+        } else {
+          debugPrint('[BackgroundService] LAN discovery could not locate PC.');
+          service.invoke('reconnect_state', {
+            'state': 'not_found',
+            'lastKnownIp': pairing.ip,
+            'port': pairing.port,
+          });
+        }
+      }
+
+      final serverUrl = 'http://$targetIp:$targetPort';
+      debugPrint('[BackgroundService] Connecting persistent socket to $serverUrl ...');
+      SocketService.instance.connect(serverUrl);
+    } finally {
+      isConnectingOrSearching = false;
     }
   }
+
+  // Auto-recover if consecutive socket connection attempts fail
+  int consecutiveErrors = 0;
+  SocketService.instance.onConnectionFailed = (err) async {
+    consecutiveErrors++;
+    debugPrint('[BackgroundService] Socket connection error (count: $consecutiveErrors): $err');
+    if (!SocketService.instance.isConnected && consecutiveErrors >= 2 && !isConnectingOrSearching) {
+      consecutiveErrors = 0;
+      debugPrint('[BackgroundService] 2 consecutive failures. Triggering background LAN recovery discovery...');
+      await connectPersistentSocket(forceDiscovery: true);
+    }
+  };
+
+  SocketService.instance.connected.addListener(() {
+    if (SocketService.instance.isConnected) {
+      consecutiveErrors = 0;
+    }
+  });
 
   // Initial connect
   await connectPersistentSocket();
@@ -502,10 +592,20 @@ void onStart(ServiceInstance service) async {
     }
   });
 
-  // Cross-isolate UI command: Restart socket after pairing
-  service.on('restart_socket').listen((_) async {
-    debugPrint('[BackgroundService] restart_socket command received');
-    await connectPersistentSocket();
+  // Cross-isolate UI command: Restart socket after pairing or manual reconnect
+  service.on('restart_socket').listen((data) async {
+    debugPrint('[BackgroundService] restart_socket command received: $data');
+    final map = data is Map ? data : null;
+    final forceDiscovery = map?['forceDiscovery'] == true;
+    final manualIp = map?['manualIp'] as String?;
+    final manualPort = map?['manualPort'] as int?;
+
+    if (manualIp != null && manualIp.trim().isNotEmpty) {
+      final port = manualPort ?? 4000;
+      await PairingStorageService.instance.updateHost(manualIp.trim(), port);
+    }
+
+    await connectPersistentSocket(forceDiscovery: forceDiscovery);
   });
 
   // Cross-isolate UI command: Query current status

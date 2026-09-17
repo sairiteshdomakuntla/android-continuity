@@ -345,23 +345,23 @@ export class PairingService {
       socket.on('pair-handshake', (data: unknown) => {
         if (!this._isPairingActive || !this._currentPairingKey) {
           console.warn(`[PairingService] Handshake received but pairing is not active. Rejecting socket ${socket.id}`)
-          socket.emit('pair-error', { message: 'Pairing is not currently active' })
-          socket.disconnect(true)
+          socket.emit('pair-error', { message: 'Pairing session is not active on PC. Please click "Pair New" on your computer to show a fresh QR code.' })
+          setTimeout(() => socket.disconnect(true), 500)
           return
         }
 
         const msg = data as PairHandshakeMessage
         if (!msg || typeof msg.pairingKey !== 'string') {
           console.warn(`[PairingService] Invalid handshake format from socket ${socket.id}`)
-          socket.emit('pair-error', { message: 'Invalid handshake message' })
-          socket.disconnect(true)
+          socket.emit('pair-error', { message: 'Invalid handshake message format' })
+          setTimeout(() => socket.disconnect(true), 500)
           return
         }
 
         if (msg.pairingKey !== this._currentPairingKey) {
           console.warn(`[PairingService] Pairing key mismatch from socket ${socket.id}! Rejecting.`)
-          socket.emit('pair-error', { message: 'Pairing key rejected' })
-          socket.disconnect(true)
+          socket.emit('pair-error', { message: 'Pairing key mismatch. Please scan the current QR code shown on your PC.' })
+          setTimeout(() => socket.disconnect(true), 500)
           return
         }
 

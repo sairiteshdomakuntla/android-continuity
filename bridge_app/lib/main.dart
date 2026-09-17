@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'theme/bridge_icons.dart';
 import 'services/socket_service.dart';
@@ -7,6 +9,7 @@ import 'services/clipboard_service.dart';
 import 'services/camera_service.dart';
 import 'services/file_transfer_service.dart';
 import 'services/pairing_storage_service.dart';
+import 'services/discovery_service.dart';
 import 'services/background_service.dart';
 import 'services/system_channel.dart';
 import 'services/clipboard_history_service.dart';
@@ -143,20 +146,81 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
   static bool _hasPromptedBattery = false;
   bool _notificationAccessGranted = false;
   bool _showNotifications = true;
+  bool _isReconnecting = false;
+  String? _reconnectMessage;
+  String? _lastKnownHost;
+  StreamSubscription? _reconnectStateSub;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadInitialPairing();
+    _listenToReconnectEvents();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _checkPermissionsAndBattery();
       ClipboardService.instance.syncNow();
     });
   }
 
+  Future<void> _loadInitialPairing() async {
+    final pairing = await PairingStorageService.instance.getPairing();
+    if (mounted && pairing != null) {
+      setState(() {
+        _lastKnownHost = '${pairing.ip}:${pairing.port}';
+      });
+    }
+  }
+
+  void _listenToReconnectEvents() {
+    final service = FlutterBackgroundService();
+    _reconnectStateSub = service.on('reconnect_state').listen((event) {
+      if (!mounted || event == null) return;
+      final state = event['state'] as String?;
+      setState(() {
+        if (state == 'connecting') {
+          _isReconnecting = true;
+          _reconnectMessage = 'Connecting to ${event['ip'] ?? 'PC'}...';
+          if (event['ip'] != null) {
+            _lastKnownHost = '${event['ip']}:${event['port'] ?? 4000}';
+          }
+        } else if (state == 'searching_lan') {
+          _isReconnecting = true;
+          _reconnectMessage = 'Searching for PC on local network...';
+        } else if (state == 'found') {
+          _isReconnecting = true;
+          _reconnectMessage = 'PC found at ${event['ip']}! Connecting...';
+          _lastKnownHost = '${event['ip']}:${event['port'] ?? 4000}';
+        } else if (state == 'not_found') {
+          _isReconnecting = false;
+          _reconnectMessage = 'PC not reachable at ${event['lastKnownIp'] ?? 'stored IP'}';
+        } else if (state == 'unpaired') {
+          _isReconnecting = false;
+          _reconnectMessage = null;
+        }
+      });
+    });
+
+    SocketService.instance.connected.addListener(_onSocketConnectedChange);
+  }
+
+  void _onSocketConnectedChange() {
+    if (mounted && SocketService.instance.isConnected) {
+      setState(() {
+        _isReconnecting = false;
+        _reconnectMessage = null;
+        if (SocketService.instance.currentUrl != null) {
+          _lastKnownHost = SocketService.instance.currentUrl!.replaceFirst(RegExp(r'https?://'), '');
+        }
+      });
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _reconnectStateSub?.cancel();
+    SocketService.instance.connected.removeListener(_onSocketConnectedChange);
     super.dispose();
   }
 
@@ -279,6 +343,138 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _handleReconnect() async {
+    setState(() {
+      _isReconnecting = true;
+      _reconnectMessage = 'Connecting...';
+    });
+    await BackgroundService.start();
+    BackgroundService.restartSocket(forceDiscovery: false);
+
+    // If after 3.5s it's still disconnected and hasn't started searching, auto-trigger LAN search
+    Future.delayed(const Duration(milliseconds: 3500), () {
+      if (mounted && !SocketService.instance.isConnected && _isReconnecting) {
+        if (_reconnectMessage != 'Searching for PC on local network...') {
+          setState(() {
+            _reconnectMessage = 'Searching for PC on local network...';
+          });
+          BackgroundService.restartSocket(forceDiscovery: true);
+        }
+      }
+    });
+  }
+
+  Future<void> _showChangeIpDialog() async {
+    final pairing = await PairingStorageService.instance.getPairing();
+    final initialIp = pairing?.ip ?? (_lastKnownHost?.split(':').first ?? '');
+    final initialPort = pairing?.port ?? 4000;
+
+    final ipCtrl = TextEditingController(text: initialIp);
+    final portCtrl = TextEditingController(text: initialPort.toString());
+    bool isDetecting = false;
+
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Change PC Address'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'If your computer connected to a different Wi-Fi or changed its IP, enter the new IP or tap Auto-Detect.',
+                style: TextStyle(fontSize: 13, color: Colors.black87),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: ipCtrl,
+                keyboardType: TextInputType.url,
+                decoration: const InputDecoration(
+                  labelText: 'Computer IP Address',
+                  hintText: 'e.g. 192.168.1.43',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: portCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Port',
+                  hintText: '4000',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: isDetecting
+                    ? null
+                    : () async {
+                        setDialogState(() => isDetecting = true);
+                        final discovered = await DiscoveryService.findBridgeHost(
+                          port: int.tryParse(portCtrl.text) ?? 4000,
+                        );
+                        setDialogState(() => isDetecting = false);
+                        if (discovered != null) {
+                          ipCtrl.text = discovered.ip;
+                          portCtrl.text = discovered.port.toString();
+                          if (ctx.mounted) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              SnackBar(content: Text('Found PC at ${discovered.ip}:${discovered.port}!')),
+                            );
+                          }
+                        } else {
+                          if (ctx.mounted) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              const SnackBar(content: Text('No PC found on local Wi-Fi. Check Bridge on PC.')),
+                            );
+                          }
+                        }
+                      },
+                icon: isDetecting
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const BridgeIcon('refreshCw', size: 14),
+                label: Text(isDetecting ? 'Searching Wi-Fi...' : 'Auto-Detect on Wi-Fi'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final newIp = ipCtrl.text.trim();
+                final newPort = int.tryParse(portCtrl.text.trim()) ?? 4000;
+                if (newIp.isEmpty) return;
+
+                Navigator.pop(ctx);
+                setState(() {
+                  _lastKnownHost = '$newIp:$newPort';
+                  _isReconnecting = true;
+                  _reconnectMessage = 'Connecting to $newIp...';
+                });
+                await BackgroundService.start();
+                BackgroundService.restartSocket(manualIp: newIp, manualPort: newPort);
+              },
+              child: const Text('Save & Connect'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _syncNow() async {
     final result = await ClipboardService.instance.syncNow(force: true);
     if (!mounted) return;
@@ -399,14 +595,17 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
               ValueListenableBuilder<bool>(
                 valueListenable: SocketService.instance.connected,
                 builder: (context, isConnected, _) {
+                  final displayUrl = isConnected
+                      ? (SocketService.instance.currentUrl ?? '')
+                      : (_lastKnownHost != null ? 'http://$_lastKnownHost' : '');
+
                   return _StatusHero(
                     connected: isConnected,
-                    serverUrl:
-                        SocketService.instance.currentUrl ?? 'Not connected',
-                    onReconnect: () {
-                      BackgroundService.start();
-                      BackgroundService.restartSocket();
-                    },
+                    serverUrl: displayUrl,
+                    isReconnecting: _isReconnecting,
+                    reconnectMessage: _reconnectMessage,
+                    onReconnect: _handleReconnect,
+                    onChangeIp: _showChangeIpDialog,
                   );
                 },
               ),
@@ -589,12 +788,18 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
 class _StatusHero extends StatelessWidget {
   final bool connected;
   final String serverUrl;
+  final bool isReconnecting;
+  final String? reconnectMessage;
   final VoidCallback onReconnect;
+  final VoidCallback onChangeIp;
 
   const _StatusHero({
     required this.connected,
     required this.serverUrl,
+    required this.isReconnecting,
+    this.reconnectMessage,
     required this.onReconnect,
+    required this.onChangeIp,
   });
 
   @override
@@ -613,14 +818,18 @@ class _StatusHero extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: connected
                       ? BridgeColors.sage
-                      : BridgeColors.disconnectedDot,
+                      : (isReconnecting
+                          ? Colors.amber.shade700
+                          : BridgeColors.disconnectedDot),
                   shape: BoxShape.circle,
                 ),
               ),
               const SizedBox(width: 11),
               Flexible(
                 child: Text(
-                  connected ? 'Connected' : 'Not Connected',
+                  connected
+                      ? 'Connected'
+                      : (isReconnecting ? 'Connecting...' : 'Not Connected'),
                   style: BridgeText.statusMain,
                   textAlign: TextAlign.center,
                 ),
@@ -629,8 +838,15 @@ class _StatusHero extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            connected ? host : 'Pair your phone to start syncing',
-            style: BridgeText.bodySoft,
+            connected
+                ? host
+                : (reconnectMessage ??
+                    (host.isNotEmpty
+                        ? 'Paired PC: $host'
+                        : 'Pair your phone to start syncing')),
+            style: isReconnecting
+                ? BridgeText.bodySoft.copyWith(color: Colors.amber.shade900)
+                : BridgeText.bodySoft,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 10),
@@ -655,10 +871,27 @@ class _StatusHero extends StatelessWidget {
               ),
             )
           else
-            TextButton.icon(
-              onPressed: onReconnect,
-              icon: BridgeIcon('refreshCw', size: 15),
-              label: const Text('Reconnect'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: isReconnecting ? null : onReconnect,
+                  icon: isReconnecting
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const BridgeIcon('refreshCw', size: 15),
+                  label: Text(isReconnecting ? 'Connecting...' : 'Reconnect'),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: isReconnecting ? null : onChangeIp,
+                  icon: const BridgeIcon('settings', size: 14),
+                  label: const Text('Change IP'),
+                ),
+              ],
             ),
         ],
       ),

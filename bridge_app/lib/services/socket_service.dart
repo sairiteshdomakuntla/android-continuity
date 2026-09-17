@@ -31,6 +31,9 @@ class SocketService {
   /// Notify listeners when connection state changes.
   final ValueNotifier<bool> connected = ValueNotifier(false);
 
+  /// Callback when a connection attempt fails (error or timeout)
+  void Function(dynamic error)? onConnectionFailed;
+
   /// Initializes the SocketService as a UI proxy driven by BackgroundService events.
   void initUiProxy() {
     _isUiProxy = true;
@@ -70,12 +73,13 @@ class SocketService {
     _socket = io.io(
       serverUrl,
       io.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .enableForceNew()
           .enableAutoConnect()
           .enableReconnection()
+          .setTimeout(4000)                // fast 4s timeout for unreachable IPs
           .setReconnectionDelay(1000)      // retry after 1s
-          .setReconnectionDelayMax(15000)  // capped at 15s backoff
+          .setReconnectionDelayMax(10000)  // capped at 10s backoff
           .setReconnectionAttempts(99999)  // persistent reconnect
           .build(),
     );
@@ -88,10 +92,24 @@ class SocketService {
     _socket!.onConnectError((data) {
       debugPrint('[SocketService] Connection error: $data');
       connected.value = false;
+      onConnectionFailed?.call(data);
+    });
+
+    _socket!.on('connect_error', (data) {
+      debugPrint('[SocketService] connect_error event: $data');
+      connected.value = false;
+      onConnectionFailed?.call(data);
+    });
+
+    _socket!.on('connect_timeout', (data) {
+      debugPrint('[SocketService] connect_timeout event: $data');
+      connected.value = false;
+      onConnectionFailed?.call(data);
     });
 
     _socket!.onError((data) {
       debugPrint('[SocketService] Error: $data');
+      onConnectionFailed?.call(data);
     });
 
     _socket!.onDisconnect((reason) {
@@ -206,11 +224,13 @@ class SocketService {
     required String deviceId,
     required String deviceName,
   }) async {
+    debugPrint('[SocketService] Initiating pairing handshake to $serverUrl ...');
     final tempSocket = io.io(
       serverUrl,
       io.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket', 'polling'])
           .enableForceNew()
+          .disableAutoConnect()
           .build(),
     );
 
@@ -219,7 +239,10 @@ class SocketService {
 
     void cleanup() {
       timeoutTimer?.cancel();
-      tempSocket.dispose();
+      try {
+        tempSocket.disconnect();
+        tempSocket.dispose();
+      } catch (_) {}
     }
 
     void onPairSuccess(dynamic data) {
@@ -240,7 +263,7 @@ class SocketService {
     }
 
     void sendHandshake() {
-      debugPrint('[SocketService] Sending pair-handshake to $serverUrl ...');
+      debugPrint('[SocketService] tempSocket connected to $serverUrl! Sending pair-handshake ...');
       tempSocket.emit('pair-handshake', {
         'pairingKey': pairingKey,
         'deviceId': deviceId,
@@ -248,19 +271,40 @@ class SocketService {
       });
     }
 
-    tempSocket.once('pair-success', onPairSuccess);
-    tempSocket.once('pair-error', onPairError);
+    tempSocket.on('pair-success', onPairSuccess);
+    tempSocket.on('pair-error', onPairError);
 
-    timeoutTimer = Timer(const Duration(seconds: 12), () {
+    tempSocket.onConnectError((err) {
+      debugPrint('[SocketService] tempSocket connect_error: $err');
+      cleanup();
       if (!completer.isCompleted) {
-        cleanup();
-        completer.completeError(Exception('Pairing timed out. Host did not respond in 12s.'));
+        completer.completeError(Exception('Cannot reach Windows host ($err). Verify both devices are connected to the same Wi-Fi.'));
       }
     });
 
-    tempSocket.once('connect', (_) {
+    tempSocket.onError((err) {
+      debugPrint('[SocketService] tempSocket error: $err');
+      cleanup();
+      if (!completer.isCompleted) {
+        completer.completeError(Exception('Socket connection error: $err'));
+      }
+    });
+
+    tempSocket.onDisconnect((reason) {
+      debugPrint('[SocketService] tempSocket disconnected: $reason');
+    });
+
+    tempSocket.onConnect((_) {
       sendHandshake();
     });
+
+    timeoutTimer = Timer(const Duration(seconds: 15), () {
+      if (!completer.isCompleted) {
+        cleanup();
+        completer.completeError(Exception('Pairing timed out. Host did not respond in 15s. Make sure Bridge is open on Windows.'));
+      }
+    });
+
     tempSocket.connect();
 
     return completer.future;

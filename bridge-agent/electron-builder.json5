@@ -11,6 +11,13 @@
     "dist",
     "dist-electron"
   ],
+  "extraResources": [
+    {
+      "from": "resources/virtual-camera",
+      "to": "virtual-camera",
+      "filter": ["**/*.dll"]
+    }
+  ],
   "mac": {
     "target": [
       "dmg"

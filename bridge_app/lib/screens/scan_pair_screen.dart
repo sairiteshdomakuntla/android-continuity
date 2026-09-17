@@ -74,6 +74,7 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
   }
 
   Future<void> _performPairing(String ip, int port, String pairingKey) async {
+    debugPrint('[ScanPair] Parsed QR code: target host=$ip:$port, key=${pairingKey.substring(0, 8)}...');
     setState(() {
       _statusText = 'Connecting to $ip:$port...';
     });
@@ -85,12 +86,14 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
       _statusText = 'Exchanging pairing handshake...';
     });
 
+    debugPrint('[ScanPair] Starting performPairHandshake to $serverUrl with deviceId $deviceId');
     await SocketService.instance.performPairHandshake(
       serverUrl: serverUrl,
       pairingKey: pairingKey,
       deviceId: deviceId,
       deviceName: 'Android Phone',
     );
+    debugPrint('[ScanPair] performPairHandshake completed successfully!');
 
     // Save pairing credentials in secure storage
     await PairingStorageService.instance.savePairing(

@@ -7,19 +7,24 @@ import { DeviceStorageService, PairedDevice } from './services/DeviceStorageServ
 import { PairingService, LanInterfaceCandidate } from './services/PairingService.js'
 import { FileTransferService } from './services/FileTransferService.js'
 import { CameraSignalService } from './services/CameraSignalService.js'
-import { ObsManagerService } from './services/ObsManagerService.js'
+import { VirtualCameraService } from './services/VirtualCameraService.js'
 import { ClipboardHistoryService } from './services/ClipboardHistoryService.js'
 import { NotificationHistoryService } from './services/NotificationHistoryService.js'
 import { NotificationService } from './services/NotificationService.js'
 import { DeviceService } from './services/DeviceService.js'
 import { RemoteInputService } from './services/RemoteInputService.js'
+import { DiscoveryService } from './services/DiscoveryService.js'
 
-export { ObsManagerService, CameraSignalService }
+export { CameraSignalService }
 
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 app.name = 'Bridge Agent'
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+app.commandLine.appendSwitch('disable-background-timer-throttling')
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 try {
   app.setPath('userData', path.join(app.getPath('appData'), 'Bridge Agent'))
 } catch { }
@@ -89,6 +94,7 @@ function createWindow() {
 }
 
 app.on('window-all-closed', () => {
+  DiscoveryService.stop()
   if (process.platform !== 'darwin') {
     app.quit()
     win = null
@@ -276,14 +282,22 @@ app.whenReady().then(async () => {
     win?.webContents.send('file-progress', progress)
   })
 
-  // 6. Start Camera Signal Service
+  // 6. Register Virtual Camera DLLs (first-run only — idempotent)
+  VirtualCameraService.ensureRegistered().catch((err) => {
+    console.warn('[Main] Virtual camera registration warning:', err)
+  })
+
+  // 7. Start Camera Signal Service
   CameraSignalService.start(
     () => win,
     RENDERER_DIST,
     VITE_DEV_SERVER_URL ?? '',
   )
 
-  // 7. Open window
+  // 8. Start UDP LAN Discovery Service
+  DiscoveryService.start()
+
+  // 9. Open window
   createWindow()
 })
 

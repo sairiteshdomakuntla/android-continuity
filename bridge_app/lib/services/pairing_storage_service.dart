@@ -76,6 +76,17 @@ class PairingStorageService {
     }
   }
 
+  /// Updates the paired host IP and port without discarding pairing credentials.
+  Future<void> updateHost(String newIp, int newPort) async {
+    try {
+      await _storage.write(key: _keyIp, value: newIp);
+      await _storage.write(key: _keyPort, value: newPort.toString());
+      debugPrint('[PairingStorageService] Successfully updated paired host to $newIp:$newPort');
+    } catch (e) {
+      debugPrint('[PairingStorageService] Error updating paired host: $e');
+    }
+  }
+
   Future<void> clearPairing() async {
     await _storage.delete(key: _keyIp);
     await _storage.delete(key: _keyPort);

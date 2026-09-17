@@ -159,8 +159,9 @@ class CameraService {
     _localStream = await navigator.mediaDevices.getUserMedia({
       'video': {
         'facingMode': useFrontCamera ? 'user' : 'environment',
-        'width': {'ideal': 1280},
-        'height': {'ideal': 720},
+        'width': {'ideal': 1280, 'max': 1280},
+        'height': {'ideal': 720, 'max': 720},
+        'frameRate': {'ideal': 30, 'max': 30},
       },
       'audio': false, // Video-only — we do not transmit audio.
     });
@@ -177,12 +178,39 @@ class CameraService {
       await _pc!.addTrack(track, _localStream!);
     }
 
-    // Create and send offer to Windows
-    final offer = await _pc!.createOffer({});
-    await _pc!.setLocalDescription(offer);
+    // Set sender parameters to lock 30 FPS and 3.0 Mbps bitrate
+    try {
+      final senders = await _pc!.getSenders();
+      for (final sender in senders) {
+        if (sender.track?.kind == 'video') {
+          final params = sender.parameters;
+          if (params.encodings != null && params.encodings!.isNotEmpty) {
+            for (final enc in params.encodings!) {
+              enc.maxBitrate = 3000000;
+              enc.minBitrate = 1000000;
+              enc.maxFramerate = 30;
+            }
+            await sender.setParameters(params);
+            debugPrint('[CameraService] Applied high-bitrate encoding parameters (30 FPS, 3 Mbps)');
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      debugPrint('[CameraService] setParameters notice: $e');
+    }
+
+    // Create and send offer to Windows with H.264 prioritization
+    final offer = await _pc!.createOffer({
+      'offerToReceiveVideo': 0,
+      'offerToReceiveAudio': 0,
+    });
+    final mungedSdp = _preferH264(offer.sdp ?? '');
+    final mungedOffer = RTCSessionDescription(mungedSdp, offer.type);
+    await _pc!.setLocalDescription(mungedOffer);
 
     debugPrint('[CameraService] Sending offer to Windows via BackgroundService…');
-    await _emitSignal({'event': 'offer', 'sdp': offer.sdp});
+    await _emitSignal({'event': 'offer', 'sdp': mungedOffer.sdp});
   }
 
   /// Stops the camera stream and tears down the peer connection.
@@ -316,8 +344,9 @@ class CameraService {
     final newStream = await navigator.mediaDevices.getUserMedia({
       'video': {
         'facingMode': _useFrontCamera ? 'user' : 'environment',
-        'width': {'ideal': 1280},
-        'height': {'ideal': 720},
+        'width': {'ideal': 1280, 'max': 1280},
+        'height': {'ideal': 720, 'max': 720},
+        'frameRate': {'ideal': 30, 'max': 30},
       },
       'audio': false,
     });
@@ -448,6 +477,50 @@ class CameraService {
     _pc!.onSignalingState = (state) {
       debugPrint('[CameraService] Signaling state: $state');
     };
+  }
+
+  // ── SDP munging ─────────────────────────────────────────────────────────────
+
+  /// Reorders payload types in the SDP offer so H.264 appears first before VP8.
+  /// Samsung Exynos hardware H.264 encoder is stable and smooth, preventing
+  /// the c2.exynos.vp8.encoder rapid reconfiguration/crash loop.
+  String _preferH264(String sdp) {
+    final lines = sdp.split('\r\n');
+    String? h264Payload;
+
+    for (final line in lines) {
+      final match = RegExp(r'^a=rtpmap:(\d+)\s+H264/90000', caseSensitive: false).firstMatch(line);
+      if (match != null) {
+        h264Payload = match.group(1);
+        break;
+      }
+    }
+
+    if (h264Payload == null) {
+      debugPrint('[CameraService] No H.264 codec found in SDP, keeping default order');
+      return sdp;
+    }
+
+    debugPrint('[CameraService] Prioritizing H.264 codec (payload: $h264Payload) over VP8');
+
+    final newLines = <String>[];
+    for (final line in lines) {
+      if (line.startsWith('m=video ')) {
+        final parts = line.split(' ');
+        if (parts.length > 3) {
+          final prefix = parts.sublist(0, 3);
+          final payloads = parts.sublist(3);
+          payloads.remove(h264Payload);
+          payloads.insert(0, h264Payload);
+          newLines.add('${prefix.join(' ')} ${payloads.join(' ')}');
+          newLines.add('b=AS:3500');
+          continue;
+        }
+      }
+      newLines.add(line);
+    }
+
+    return newLines.join('\r\n');
   }
 
   // ── Emit helper ───────────────────────────────────────────────────────────────

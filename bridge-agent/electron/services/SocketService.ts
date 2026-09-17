@@ -1,4 +1,6 @@
 import http from 'node:http'
+import os from 'node:os'
+import { randomUUID } from 'node:crypto'
 import { Server, Socket } from 'socket.io'
 import type { BridgeMessage, MessageType } from '../types/protocol.js'
 import { CryptoService } from './CryptoService.js'
@@ -20,6 +22,18 @@ class SocketServiceClass {
       if (req.url === '/obs-camera' || req.url === '/obs-camera.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
         res.end(getObsCameraHtml())
+        return
+      }
+      if (req.url === '/bridge-info' || req.url === '/bridge-info/') {
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+        })
+        res.end(JSON.stringify({
+          app: 'bridge',
+          port: PORT,
+          hostname: os.hostname(),
+        }))
         return
       }
       res.writeHead(404)
@@ -44,7 +58,6 @@ class SocketServiceClass {
 
       socket.on('obs-camera-signal-out', (payload: any) => {
         console.log(`[SocketService] OBS Camera sending signal to Android: ${payload?.event}`)
-        const { randomUUID } = require('node:crypto')
         this.broadcast({
           eventId: randomUUID(),
           type: 'camera-signal',

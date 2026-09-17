@@ -23,5 +23,8 @@ declare namespace NodeJS {
 
 // Used in Renderer process, expose in `preload.ts`
 interface Window {
-  ipcRenderer: import('electron').IpcRenderer
+  ipcRenderer: import('electron').IpcRenderer & {
+    /** Zero-copy frame send (preload `sendFrame`) — see electron/preload.ts. */
+    sendFrame(width: number, height: number, data: ArrayBuffer): void
+  }
 }
