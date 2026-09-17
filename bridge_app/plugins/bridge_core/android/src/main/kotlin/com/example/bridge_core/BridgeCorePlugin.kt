@@ -34,6 +34,8 @@ class BridgeCorePlugin : FlutterPlugin, ActivityAware {
         // Battery change events stream to every attached engine (UI +
         // background isolate); Dart decides which isolate acts on them.
         SystemChannelHandler.registerBatteryChannel(binding.applicationContext, systemChannel!!)
+        // Same fan-out for "Sync Now" trampoline clipboard pushes.
+        SystemChannelHandler.registerClipSyncChannel(systemChannel!!)
 
         val notificationsHandler = NotificationsChannelHandler(binding.applicationContext)
         notificationsChannel = MethodChannel(binding.binaryMessenger, NOTIFICATION_CHANNEL).apply {
@@ -50,6 +52,7 @@ class BridgeCorePlugin : FlutterPlugin, ActivityAware {
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         filesChannel?.setMethodCallHandler(null)
         systemChannel?.let { SystemChannelHandler.unregisterBatteryChannel(it) }
+        systemChannel?.let { SystemChannelHandler.unregisterClipSyncChannel(it) }
         systemChannel?.setMethodCallHandler(null)
         widgetChannel?.setMethodCallHandler(null)
         notificationsChannel?.let {

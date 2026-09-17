@@ -40,6 +40,9 @@ void main() async {
   if (pairing != null) {
     // Start persistent background service (which owns the single socket)
     await BackgroundService.start();
+    // Attach "Sync Now" to the persistent notification (idempotent;
+    // the background isolate re-applies once the service is up).
+    unawaited(SystemChannel.ensureSyncNowAction());
   }
 
   // 3. Init UI proxy services
@@ -265,6 +268,9 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _checkNotificationAccess();
       _refreshSetupState();
+      // Re-attach "Sync Now" (the plugin re-posts a bare notification
+      // on service restart, wiping the action).
+      unawaited(SystemChannel.ensureSyncNowAction());
       ClipboardService.instance.syncNow();
     }
   }

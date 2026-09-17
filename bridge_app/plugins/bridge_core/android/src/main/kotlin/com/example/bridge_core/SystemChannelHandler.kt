@@ -2,6 +2,10 @@ package com.example.bridge_core
 
 import android.Manifest
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -19,8 +23,10 @@ import android.os.PowerManager
 import android.provider.MediaStore
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.graphics.drawable.IconCompat
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
@@ -92,6 +98,33 @@ class SystemChannelHandler(
 
         fun unregisterBatteryChannel(channel: MethodChannel) {
             batteryChannels.remove(channel)
+        }
+
+        // ── "Sync Now" trampoline fan-out ─────────────────────────────
+        // Every attached Flutter engine (UI + background isolate) gets a
+        // turn; Dart decides which isolate acts. The background isolate
+        // owns the socket and runs the real pipeline.
+        private val clipSyncChannels = CopyOnWriteArrayList<MethodChannel>()
+
+        fun registerClipSyncChannel(channel: MethodChannel) {
+            clipSyncChannels.add(channel)
+        }
+
+        fun unregisterClipSyncChannel(channel: MethodChannel) {
+            clipSyncChannels.remove(channel)
+        }
+
+        fun pushTrampolineClipboard(text: String) {
+            mainHandler.post {
+                for (channel in clipSyncChannels) {
+                    try {
+                        channel.invokeMethod(
+                            "onTrampolineClipboard", mapOf("text" to text))
+                    } catch (e: Exception) {
+                        // Channel might be detached
+                    }
+                }
+            }
         }
     }
 
@@ -444,7 +477,122 @@ class SystemChannelHandler(
                 result.success(RingManager.isRinging())
             }
 
+            // ── Persistent-notification "Sync Now" action ─────────────
+            // Augments the flutter_background_service foreground
+            // notification in place (same id, same channel — no new
+            // notification, no new channel). Re-applied on service start
+            // and app resume: the plugin re-posts a bare notification on
+            // restart, wiping the action. No special permissions involved.
+            "ensureSyncNowAction" -> {
+                try {
+                    result.success(ensureSyncNowAction(context.applicationContext))
+                } catch (e: Exception) {
+                    result.error("NOTIF_ERROR", e.message, null)
+                }
+            }
+
             else -> result.notImplemented()
+        }
+    }
+
+    /**
+     * Clones the live persistent notification (title, text, icon, tap
+     * behavior) and re-posts it with a "Sync Now" action that launches
+     * the transparent ClipSyncActivity trampoline. Returns false when
+     * the service notification isn't up yet (caller retries later).
+     */
+    private fun ensureSyncNowAction(appContext: Context): Boolean {
+        // Must match flutter_background_service's Config default
+        // ("foreground_notification_id", 112233) and the channel id
+        // passed in AndroidConfiguration.
+        val channelId = "bridge_foreground_service"
+        val notifId = 112233
+        try {
+            val nm = appContext.getSystemService(Context.NOTIFICATION_SERVICE)
+                as? NotificationManager ?: return false
+            val base = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    nm.activeNotifications.firstOrNull { it.id == notifId }
+                        ?.notification
+                } else {
+                    null
+                }
+            } catch (_: Exception) {
+                null
+            } ?: return false
+
+            val openSync = Intent().apply {
+                setClassName(
+                    appContext.packageName,
+                    "com.example.bridge_app.ClipSyncActivity"
+                )
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+            val syncTap = PendingIntent.getActivity(
+                appContext, 7701, openSync, pendingFlags)
+
+            val builder = NotificationCompat.Builder(appContext, channelId)
+                .setOngoing(true)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setWhen(base.`when`)
+                .addAction(
+                    android.R.drawable.ic_popup_sync,
+                    "Sync Now", syncTap)
+
+            val extras = base.extras
+            builder.setContentTitle(extras.getCharSequence(Notification.EXTRA_TITLE))
+            builder.setContentText(extras.getCharSequence(Notification.EXTRA_TEXT))
+
+            // Preserve tap-to-open; fall back to a plain launch intent.
+            val tap = base.contentIntent ?: try {
+                val launch = appContext.packageManager
+                    .getLaunchIntentForPackage(appContext.packageName)
+                if (launch != null) PendingIntent.getActivity(
+                    appContext, 7702, launch, pendingFlags) else null
+            } catch (_: Exception) {
+                null
+            }
+            builder.setContentIntent(tap)
+
+            // Clone the small icon (plugin's own); fall back to the app
+            // icon — a valid small icon is mandatory for notify().
+            var iconSet = false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                try {
+                    val si = base.smallIcon
+                    if (si != null) {
+                        val compat: IconCompat? =
+                            IconCompat.createFromIcon(appContext, si)
+                        if (compat != null) {
+                            builder.setSmallIcon(compat)
+                            iconSet = true
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+            if (!iconSet) {
+                val appIcon = appContext.applicationInfo.icon
+                if (appIcon != 0) {
+                    builder.setSmallIcon(appIcon)
+                    iconSet = true
+                }
+            }
+            if (!iconSet) return false
+
+            nm.notify(notifId, builder.build())
+            return true
+        } catch (e: Exception) {
+            android.util.Log.w("SystemChannelHandler",
+                "ensureSyncNowAction failed: $e")
+            return false
         }
     }
 }

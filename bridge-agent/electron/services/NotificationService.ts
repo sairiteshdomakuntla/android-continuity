@@ -27,7 +27,12 @@ class NotificationServiceClass {
 
       switch (payload.event) {
         case 'posted': {
-          NotificationHistoryService.addOrUpdate(payload)
+          // Android re-fires `posted` for the same key on every update
+          // (ranking changes, progress, typing indicators…). Toast only for
+          // genuinely new or content-changed alerts; identical re-posts
+          // refresh the list silently instead of buzzing repeatedly.
+          const freshness = NotificationHistoryService.addOrUpdate(payload)
+          if (freshness === 'same') break
 
           // Native Windows OS notification toast
           try {

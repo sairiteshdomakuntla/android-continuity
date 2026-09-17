@@ -131,6 +131,23 @@ class ClipboardService with WidgetsBindingObserver {
       }
     });
 
+    // Trampoline "Sync Now": the background isolate pushed clipboard text
+    // read under transient window focus. Mark synced (resume echo guard)
+    // and reload the history entry it wrote (background isolate is the
+    // single writer here, same as the foreground send path's addEntry).
+    service.on('clipboard_sent').listen((event) async {
+      if (event == null) return;
+      final text = event['text'] as String?;
+      if (text == null || text.isEmpty) return;
+      markAsSynced(text);
+      try {
+        await ClipboardHistoryService.instance.load();
+        debugPrint('[ClipboardService] Trampoline push applied: "${text.length > 40 ? '${text.substring(0, 40)}…' : text}"');
+      } catch (e) {
+        debugPrint('[ClipboardService] clipboard_sent load error: $e');
+      }
+    });
+
     // Listen for incoming image clipboard notifications forwarded from background service isolate
     service.on('clipboard_image_received').listen((event) async {
       if (event == null) return;

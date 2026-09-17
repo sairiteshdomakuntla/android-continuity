@@ -138,6 +138,20 @@
             android:theme="@style/Theme.Bridge.Trampoline"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" />
 
+        <!-- "Sync Now" trampoline: transparent clipboard read under transient
+             window focus. Exported (like WidgetCopyActivity) because the
+             notification action PendingIntent is delivered by System UI.
+             No special permissions. -->
+        <activity
+            android:name=".ClipSyncActivity"
+            android:exported="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Bridge.Trampoline"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" />
+
         <!-- Find-my-phone ringing overlay: full-screen Clay+Linen screen.
              Launched via notification full-screen intent (lock-screen safe)
              or directly when the app was recently visible. -->
@@ -157,6 +171,17 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.example.bridge_app.STOP_RING" />
+            </intent-filter>
+        </receiver>
+
+        <!-- "Sync Now" trampoline push: ClipSyncActivity broadcasts the text
+             it read; ClipSyncReceiver fans it out to the Flutter engines.
+             Implemented in bridge_core; declared here (same APK). -->
+        <receiver
+            android:name="com.example.bridge_core.ClipSyncReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.bridge_app.CLIP_SYNC_PUSH" />
             </intent-filter>
         </receiver>
 

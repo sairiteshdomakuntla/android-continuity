@@ -16,6 +16,7 @@ import 'file_transfer_service.dart';
 import 'pairing_storage_service.dart';
 import 'event_dedupe.dart';
 import 'system_channel.dart';
+import 'clipboard_history_service.dart';
 import 'notifications_channel.dart';
 import 'battery_service.dart';
 import 'widget_snapshot_service.dart';
@@ -305,6 +306,14 @@ void onStart(ServiceInstance service) async {
   // Initial connect
   await connectPersistentSocket();
 
+  // Attach "Sync Now" to the persistent notification (re-applied: the
+  // plugin re-posts a bare notification on service restart).
+  try {
+    await SystemChannel.ensureSyncNowAction();
+  } catch (e) {
+    debugPrint('[BackgroundService] ensureSyncNowAction failed: $e');
+  }
+
   // Initialize background file transfer receiver
   FileTransferService.init(
     isBackgroundService: true,
@@ -336,6 +345,10 @@ void onStart(ServiceInstance service) async {
   String? latestClipboardText;
   String? latestClipboardEventId;
   String? latestClipboardTimestamp;
+
+  // Last text pushed Android -> Windows (trampoline "Sync Now" or UI send).
+  // Echo guard so repeat taps / resume sync don't re-emit the same content.
+  String? lastPushedToWindowsText;
 
   // Incoming clipboard from Windows -> update Android clipboard & notify UI isolate
   SocketService.instance.onClipboardMessage((msg) async {
@@ -399,6 +412,47 @@ void onStart(ServiceInstance service) async {
     } catch (_) {}
   });
 
+  // ── Notification "Sync Now" trampoline ─────────────────────────────
+  // The transparent ClipSyncActivity reads the clipboard under transient
+  // window focus (no overlay permission) and native fans the text out to
+  // every engine. Same pipeline as the foreground syncNow text path:
+  // echo guards → eventId dedupe → emit over the persistent socket →
+  // history entry (with content-type classification) → notify the UI
+  // isolate so resume sync doesn't re-emit.
+  SystemChannel.setTrampolineListener((text) async {
+    if (text.trim().isEmpty) {
+      debugPrint('[BackgroundService] [SYNC NOW] Empty text — nothing to push');
+      return;
+    }
+    if (text == lastPushedToWindowsText) {
+      debugPrint('[BackgroundService] [SYNC NOW] Already pushed to Windows — skipping');
+      return;
+    }
+    if (text == latestClipboardText) {
+      debugPrint('[BackgroundService] [SYNC NOW] Matches last text from Windows — echo, skipping');
+      return;
+    }
+    final eventId = const Uuid().v4();
+    dedupe.add(eventId);
+    lastPushedToWindowsText = text;
+    final preview = text.length > 40 ? '${text.substring(0, 40)}…' : text;
+    debugPrint('[BackgroundService] [SYNC NOW] Pushing trampoline clipboard to Windows: eventId=$eventId "$preview"');
+    final msg = BridgeMessage(
+      eventId: eventId,
+      type: MessageType.clipboard,
+      origin: Origin.android,
+      timestamp: DateTime.now().toUtc().toIso8601String(),
+      payload: {'text': text},
+    );
+    await SocketService.instance.emit(msg);
+    try {
+      await ClipboardHistoryService.instance.addEntry(text, 'android', id: eventId);
+    } catch (e) {
+      debugPrint('[BackgroundService] [SYNC NOW] History write failed: $e');
+    }
+    service.invoke('clipboard_sent', {'text': text, 'eventId': eventId});
+  });
+
   // Incoming camera-signal from Windows -> forward to UI isolate
   SocketService.instance.onMessage(MessageType.cameraSignal, (msg) {
     final event = msg.payload['event'] as String? ?? 'unknown';
@@ -448,9 +502,44 @@ void onStart(ServiceInstance service) async {
   });
 
   // ── Notification sync ──────────────────────────────────────────────────────
+  // Coalescing window for identical re-posts: Android re-fires
+  // onNotificationPosted for the same key on ranking-only changes with
+  // byte-identical content. Dropping those at the source keeps the PC from
+  // buzzing repeatedly for one alert. Content changes always pass through.
+  final recentNotifSig = <String, String>{};
+  final recentNotifAt = <String, int>{};
+
+  bool isDuplicateRepost(Map<String, dynamic> event) {
+    final id = event['notificationId'] as String?;
+    if (id == null || id.isEmpty) return false;
+    final sig = "${event['title']}|${event['text']}|${event['hasReplyAction']}";
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final prevSig = recentNotifSig[id];
+    final prevAt = recentNotifAt[id] ?? 0;
+    if (prevSig == sig && now - prevAt < 10000) return true;
+    recentNotifSig[id] = sig;
+    recentNotifAt[id] = now;
+    if (recentNotifSig.length > 200) {
+      final cutoff = now - 60000;
+      recentNotifAt.removeWhere((_, at) => at < cutoff);
+      recentNotifSig.removeWhere((key, _) => !recentNotifAt.containsKey(key));
+    }
+    return false;
+  }
+
   // 1. Forward notifications captured by native BridgeNotificationListenerService to Windows
   NotificationsChannel.setEventListener((event) async {
     final eventType = event['event'] as String? ?? 'unknown';
+    if (eventType == 'dismissed') {
+      final id = event['notificationId'] as String?;
+      if (id != null) {
+        recentNotifSig.remove(id);
+        recentNotifAt.remove(id);
+      }
+    } else if (eventType == 'posted' && isDuplicateRepost(event)) {
+      debugPrint("[BackgroundService] [NOTIFICATION] Dropping identical re-post for ${event['notificationId']} (coalesced)");
+      return;
+    }
     if (!SocketService.instance.isConnected) {
       debugPrint('[BackgroundService] [NOTIFICATION] Dropping notification [$eventType] — socket not connected');
       return;
@@ -522,6 +611,7 @@ void onStart(ServiceInstance service) async {
     if (data == null) return;
     final text = data['text'] as String?;
     if (text != null && text.isNotEmpty) {
+      lastPushedToWindowsText = text;
       SocketService.instance.emitClipboardMessage(text);
     }
   });

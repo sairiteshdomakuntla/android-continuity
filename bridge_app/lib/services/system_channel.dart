@@ -119,6 +119,21 @@ class SystemChannel {
     }
   }
 
+  /// Adds the "Sync Now" action to the persistent foreground-service
+  /// notification in place (same id, same channel). Idempotent: safe to
+  /// call on service start and app resume. Returns false when the service
+  /// notification isn't up yet (caller retries later).
+  static Future<bool> ensureSyncNowAction() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final res = await _channel.invokeMethod<bool>('ensureSyncNowAction');
+      return res ?? false;
+    } catch (e) {
+      debugPrint('[SystemChannel] ensureSyncNowAction error: $e');
+      return false;
+    }
+  }
+
   /// One-shot battery read: {"level": 0-100, "isCharging": bool} or null.
   /// Backed by the sticky ACTION_BATTERY_CHANGED intent — no polling needed.
   static Future<Map<String, dynamic>?> getBatteryState() async {
@@ -136,13 +151,42 @@ class SystemChannel {
   /// the ACTION_BATTERY_CHANGED receiver registered in the plugin).
   /// The background isolate uses this for throttled battery-update emits.
   static void setBatteryListener(void Function(Map<String, dynamic> state) onEvent) {
+    _batteryListener = onEvent;
+    _ensureHandler();
+  }
+
+  /// Registers a callback for clipboard text pushed by the transparent
+  /// ClipSyncActivity trampoline ("Sync Now" notification action).
+  /// The background isolate uses this to run the sync pipeline headless.
+  static void setTrampolineListener(void Function(String text) onEvent) {
+    _trampolineListener = onEvent;
+    _ensureHandler();
+  }
+
+  static void Function(Map<String, dynamic>)? _batteryListener;
+  static void Function(String)? _trampolineListener;
+  static bool _handlerRegistered = false;
+
+  /// Single MethodCallHandler for bridge/system: registering battery and
+  /// trampoline listeners independently must not clobber each other.
+  static void _ensureHandler() {
+    if (_handlerRegistered) return;
+    _handlerRegistered = true;
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onBatteryChanged') {
         try {
           final map = Map<String, dynamic>.from(call.arguments as Map);
-          onEvent(map);
+          _batteryListener?.call(map);
         } catch (e) {
           debugPrint('[SystemChannel] Error parsing onBatteryChanged: $e');
+        }
+      } else if (call.method == 'onTrampolineClipboard') {
+        try {
+          final map = Map<String, dynamic>.from(call.arguments as Map);
+          final text = map['text'] as String?;
+          if (text != null) _trampolineListener?.call(text);
+        } catch (e) {
+          debugPrint('[SystemChannel] Error parsing onTrampolineClipboard: $e');
         }
       }
     });

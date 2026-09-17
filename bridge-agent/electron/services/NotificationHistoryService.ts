@@ -17,12 +17,20 @@ const MAX_NOTIFICATIONS = 20
 class NotificationHistoryServiceClass {
   private _items: NotificationItem[] = []
   private _listeners: Array<(items: NotificationItem[]) => void> = []
+  // Last seen content per id — lets callers tell a genuinely new/changed
+  // alert apart from Android's frequent identical re-posts of the same key.
+  private _lastContent = new Map<string, string>()
 
   getItems(): NotificationItem[] {
     return [...this._items]
   }
 
-  addOrUpdate(payload: NotificationPostedPayload): void {
+  /**
+   * Inserts or refreshes an item.
+   * @returns 'new' for a never-seen id, 'changed' when title/text differ
+   * from the last seen content, 'same' for an identical re-post.
+   */
+  addOrUpdate(payload: NotificationPostedPayload): 'new' | 'changed' | 'same' {
     const existingIndex = this._items.findIndex((i) => i.notificationId === payload.notificationId)
 
     const item: NotificationItem = {
@@ -38,23 +46,33 @@ class NotificationHistoryServiceClass {
       replyError: undefined,
     }
 
+    const contentSig = `${payload.title || ''}\n${payload.text || ''}`
+    const prevSig = this._lastContent.get(payload.notificationId)
+    this._lastContent.set(payload.notificationId, contentSig)
+
     if (existingIndex >= 0) {
       // Update existing
       this._items[existingIndex] = item
-    } else {
-      // Prepend new notification
-      this._items.unshift(item)
-      if (this._items.length > MAX_NOTIFICATIONS) {
-        this._items = this._items.slice(0, MAX_NOTIFICATIONS)
-      }
+      this._notifyListeners()
+      return prevSig === contentSig ? 'same' : 'changed'
+    }
+
+    // Prepend new notification
+    this._items.unshift(item)
+    if (this._items.length > MAX_NOTIFICATIONS) {
+      const evicted = this._items.slice(MAX_NOTIFICATIONS)
+      this._items = this._items.slice(0, MAX_NOTIFICATIONS)
+      for (const e of evicted) this._lastContent.delete(e.notificationId)
     }
 
     this._notifyListeners()
+    return 'new'
   }
 
   remove(notificationId: string): void {
     const beforeLen = this._items.length
     this._items = this._items.filter((i) => i.notificationId !== notificationId)
+    this._lastContent.delete(notificationId)
     if (this._items.length !== beforeLen) {
       this._notifyListeners()
     }
@@ -78,6 +96,7 @@ class NotificationHistoryServiceClass {
 
   clear(): void {
     this._items = []
+    this._lastContent.clear()
     this._notifyListeners()
   }
 
