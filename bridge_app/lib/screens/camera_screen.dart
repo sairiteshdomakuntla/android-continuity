@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../theme/bridge_icons.dart';
 import '../services/camera_service.dart';
 import '../services/socket_service.dart';
@@ -41,6 +42,10 @@ class _CameraScreenState extends State<CameraScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
 
+    // Keep the screen on while the camera screen is visible — streaming
+    // sessions run long and must not be interrupted by screen timeout.
+    WakelockPlus.enable();
+
     // Lock to portrait by default (user can rotate if they want)
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -70,6 +75,8 @@ class _CameraScreenState extends State<CameraScreen>
     WidgetsBinding.instance.removeObserver(this);
     SocketService.instance.connected.removeListener(_onConnectionChanged);
     CameraService.instance.onStopCameraRequested = null;
+    // Screen may time out normally again once the camera screen is gone.
+    WakelockPlus.disable();
     _cam.stopCamera();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     debugPrint('[CameraScreen] dispose() completed');
