@@ -297,8 +297,10 @@ class ClipboardServiceClass {
     }
 
     if (msg.payload?.kind === 'image') {
-      // Chunked image transfer will be delivered by FileTransferService
-      this._dedupe.add(msg.eventId)
+      // Chunked image transfer will be delivered by FileTransferService.
+      // Do NOT add msg.eventId to _dedupe here: the sender reuses the same
+      // id as transferId, and _handleIncomingImage relies on _dedupe as its
+      // exactly-once guard — adding it now would suppress the real image.
       return
     }
 

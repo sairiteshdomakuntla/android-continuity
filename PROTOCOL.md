@@ -137,6 +137,8 @@ Sent when clipboard text or image is detected and needs to be synced.
 
 Image payloads are streamed chunk-by-chunk using the chunked `file` transport tagged with `"transferType": "clipboard-image"` (64KB chunks + incremental SHA-256 validation).
 
+Android screenshots use this same path: screenshots are saved to MediaStore (never to the clipboard), so the phone queries the latest unseen screenshot on sync and pushes it as a `clipboard-image` transfer — no protocol change.
+
 **Payload fields:**
 
 | Field | Type | Description |

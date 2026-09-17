@@ -4,6 +4,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'event_dedupe.dart';
 import 'background_service.dart';
 import 'clipboard_history_service.dart';
@@ -13,6 +15,27 @@ enum SyncDirectionResult {
   sentToWindows,
   upToDate,
   pulledFromWindows,
+}
+
+/// Decides whether an unseen screenshot should be pushed to Windows.
+///
+/// Screenshots never land in the clipboard, so Bridge tracks the last synced
+/// MediaStore row ID instead of content hashes. The very first check only
+/// establishes a silent baseline — unless the screenshot is fresh (taken
+/// within [freshWindow]) — so installing Bridge doesn't blast an old
+/// screenshot to the PC on first sync.
+bool shouldSendScreenshot({
+  required String? storedId,
+  required String shotId,
+  required int dateTakenMs,
+  required int nowMs,
+  Duration freshWindow = const Duration(minutes: 10),
+}) {
+  if (shotId.isEmpty || shotId == storedId) return false;
+  if (storedId == null) {
+    return dateTakenMs > 0 && (nowMs - dateTakenMs) <= freshWindow.inMilliseconds;
+  }
+  return true;
 }
 
 /// Foreground-only clipboard sync and UI coordinator.
@@ -29,6 +52,44 @@ class ClipboardService with WidgetsBindingObserver {
   final _dedupe = EventDedupe();
   String _lastSyncedText = '';
   String _lastSyncedImageHash = '';
+
+  /// Synchronous in-memory guard: two overlapping syncNow calls (double
+  /// resume events) must not stream the same screenshot twice. Set before
+  /// the first await so the second call sees it on the same event loop.
+  bool _screenshotCheckInFlight = false;
+
+  static const _storage = FlutterSecureStorage();
+  static const _keyLastScreenshotId = 'screenshot_last_id';
+
+  /// Set when the user dismisses the screenshot-permission rationale so Sync
+  /// Now doesn't nag every tap (session-only; asked again on next launch).
+  static bool screenshotRationaleDismissed = false;
+
+  /// True when Bridge may read screenshots (READ_MEDIA_IMAGES / storage).
+  /// Silent status check — never prompts; call [requestScreenshotAccess] for that.
+  static Future<bool> isScreenshotAccessGranted() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      if (await Permission.photos.status.isGranted) return true;
+      return await Permission.storage.status.isGranted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Requests media access for screenshot sync. Callers should show a
+  /// rationale dialog first (see BridgeHome._ensureScreenshotAccess).
+  static Future<bool> requestScreenshotAccess() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      var status = await Permission.photos.request();
+      if (status.isGranted) return true;
+      status = await Permission.storage.request();
+      return status.isGranted;
+    } catch (_) {
+      return false;
+    }
+  }
 
   void init() {
     WidgetsBinding.instance.addObserver(this);
@@ -121,7 +182,68 @@ class ClipboardService with WidgetsBindingObserver {
 
   /// Called when user taps "Sync Clipboard Now" or when resuming.
   /// Reads Android clipboard (image or text); if new or forced, pushes to Windows.
+  /// Screenshots are checked first: they never reach the clipboard, so the
+  /// latest unseen MediaStore screenshot is pushed as a clipboard image.
   Future<SyncDirectionResult> syncNow({bool force = false}) async {
+    // 0. New screenshot? (silent — only runs when media permission is granted)
+    if (_screenshotCheckInFlight) {
+      debugPrint('[ClipboardService] Screenshot check already in flight — skipping duplicate');
+    } else if (await isScreenshotAccessGranted()) {
+      _screenshotCheckInFlight = true;
+      try {
+        final shot = await SystemChannel.getLatestScreenshot();
+        if (shot != null && shot['needsPermission'] != true) {
+          final shotId = shot['id'] as String? ?? '';
+          final dateTakenMs = (shot['dateTakenMs'] as int?) ?? 0;
+          final shotPath = shot['path'] as String?;
+          final mimeType = shot['mimeType'] as String? ?? 'image/png';
+          final storedId = await _storage.read(key: _keyLastScreenshotId);
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+          if (shouldSendScreenshot(
+            storedId: storedId,
+            shotId: shotId,
+            dateTakenMs: dateTakenMs,
+            nowMs: nowMs,
+          )) {
+            if (shotPath != null && shotPath.isNotEmpty) {
+              final file = File(shotPath);
+              if (await file.exists()) {
+                final bytes = await file.readAsBytes();
+                if (bytes.isNotEmpty) {
+                  final hash = sha256.convert(bytes).toString();
+                  _lastSyncedImageHash = hash;
+                  _lastSyncedText = '';
+                  await _storage.write(key: _keyLastScreenshotId, value: shotId);
+                  await ClipboardHistoryService.instance.addImageEntry(
+                    imagePath: shotPath,
+                    origin: 'android',
+                  );
+                  debugPrint('[ClipboardService] [SEND] Routing Android screenshot to Windows: ${bytes.length} bytes');
+                  BackgroundService.sendClipboardImage(
+                    Uint8List.fromList(bytes),
+                    mimeType: mimeType,
+                  );
+                  return SyncDirectionResult.sentToWindows;
+                }
+              }
+            }
+            // Unreadable screenshot: record it so we don't retry every resume.
+            if (shotId.isNotEmpty) {
+              await _storage.write(key: _keyLastScreenshotId, value: shotId);
+            }
+          } else if (storedId == null && shotId.isNotEmpty) {
+            // First run with an old screenshot around: silent baseline, don't send.
+            await _storage.write(key: _keyLastScreenshotId, value: shotId);
+          }
+        }
+      } catch (e) {
+        debugPrint('[ClipboardService] Screenshot check error: $e');
+      } finally {
+        _screenshotCheckInFlight = false;
+      }
+    }
+
     Map<String, dynamic>? clipData;
     try {
       clipData = await SystemChannel.getClipboard();

@@ -68,6 +68,21 @@ class SystemChannel {
     }
   }
 
+  /// Returns the latest screenshot from MediaStore (screenshots are saved as
+  /// files, never to the clipboard, so they are queried explicitly).
+  /// Returns {"type": "screenshot", "id": ..., "dateTakenMs": ..., "mimeType": ...,
+  /// "path": ...}, {"needsPermission": true} when media access is missing, or null.
+  static Future<Map<String, dynamic>?> getLatestScreenshot() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>('getLatestScreenshot');
+      return res;
+    } catch (e) {
+      debugPrint('[SystemChannel] getLatestScreenshot error: $e');
+      return null;
+    }
+  }
+
   /// Sets native Android clipboard content directly via ClipboardManager.setPrimaryClip().
   /// Safe to invoke from headless background service isolates without an active Activity.
   static Future<bool> setClipboard(String text) async {

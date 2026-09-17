@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -15,6 +16,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.MediaStore
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -91,6 +93,73 @@ class SystemChannelHandler(
         fun unregisterBatteryChannel(channel: MethodChannel) {
             batteryChannels.remove(channel)
         }
+    }
+
+    /**
+     * Finds the most recent screenshot in MediaStore.
+     * Returns Triple(row ID, dateTakenMs, mimeType) or null.
+     * Screenshots live in a "Screenshots" bucket on most OEMs; as a fallback
+     * the newest images are scanned for screenshot-like names/paths.
+     */
+    private fun findLatestScreenshot(collection: Uri, projection: Array<String>): Triple<Long, Long, String?>? {
+        val resolver = context.contentResolver
+        val idCol = MediaStore.Images.Media._ID
+
+        fun rowToTriple(cursor: android.database.Cursor): Triple<Long, Long, String?>? {
+            val id = cursor.getLong(cursor.getColumnIndexOrThrow(idCol))
+            val takenIdx = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN)
+            val addedIdx = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+            val mimeIdx = cursor.getColumnIndex(MediaStore.Images.Media.MIME_TYPE)
+            val taken = if (takenIdx >= 0) cursor.getLong(takenIdx) else 0L
+            val added = if (addedIdx >= 0) cursor.getLong(addedIdx) else 0L
+            val dateTakenMs = if (taken > 0) taken else added * 1000L
+            val mime = if (mimeIdx >= 0) cursor.getString(mimeIdx) else null
+            return Triple(id, dateTakenMs, mime)
+        }
+
+        // 1. Direct bucket match (covers Samsung, Pixel, Xiaomi, Oppo, Vivo…).
+        try {
+            resolver.query(
+                collection,
+                projection,
+                "${MediaStore.Images.Media.BUCKET_DISPLAY_NAME} = ?",
+                arrayOf("Screenshots"),
+                "${MediaStore.Images.Media.DATE_TAKEN} DESC"
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) return rowToTriple(cursor)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SystemChannelHandler", "screenshot bucket query failed", e)
+        }
+
+        // 2. Fallback: scan newest images for screenshot-like bucket/name.
+        try {
+            resolver.query(
+                collection,
+                projection,
+                null,
+                null,
+                "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            )?.use { cursor ->
+                val bucketIdx = cursor.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                val nameIdx = cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME)
+                var scanned = 0
+                while (cursor.moveToNext() && scanned < 30) {
+                    scanned++
+                    val bucket = if (bucketIdx >= 0) cursor.getString(bucketIdx) ?: "" else ""
+                    val name = if (nameIdx >= 0) cursor.getString(nameIdx) ?: "" else ""
+                    if (bucket.equals("Screenshots", ignoreCase = true) ||
+                        bucket.contains("screenshot", ignoreCase = true) ||
+                        name.startsWith("Screenshot", ignoreCase = true)
+                    ) {
+                        return rowToTriple(cursor)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("SystemChannelHandler", "screenshot scan query failed", e)
+        }
+        return null
     }
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
@@ -272,6 +341,68 @@ class SystemChannelHandler(
                     result.success(imagesDir.absolutePath)
                 } catch (e: Exception) {
                     result.error("IO", e.message, null)
+                }
+            }
+
+            "getLatestScreenshot" -> {
+                // Screenshots are saved to MediaStore (never to the clipboard),
+                // so Bridge queries the latest one explicitly for Windows pasting.
+                try {
+                    val readPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        Manifest.permission.READ_MEDIA_IMAGES
+                    } else {
+                        Manifest.permission.READ_EXTERNAL_STORAGE
+                    }
+                    if (ContextCompat.checkSelfPermission(context, readPerm) != PackageManager.PERMISSION_GRANTED) {
+                        result.success(mapOf("needsPermission" to true))
+                        return
+                    }
+
+                    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                    } else {
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    }
+                    val projection = arrayOf(
+                        MediaStore.Images.Media._ID,
+                        MediaStore.Images.Media.DATE_TAKEN,
+                        MediaStore.Images.Media.DATE_ADDED,
+                        MediaStore.Images.Media.MIME_TYPE,
+                        MediaStore.Images.Media.DISPLAY_NAME,
+                        MediaStore.Images.Media.BUCKET_DISPLAY_NAME
+                    )
+
+                    val found = findLatestScreenshot(collection, projection)
+                    if (found == null) {
+                        result.success(null)
+                        return
+                    }
+
+                    val (shotId, dateTakenMs, mimeType) = found
+                    val shotUri = ContentUris.withAppendedId(collection, shotId)
+                    val bytes = try {
+                        context.contentResolver.openInputStream(shotUri)?.use { it.readBytes() }
+                    } catch (e: Exception) {
+                        android.util.Log.w("SystemChannelHandler", "Failed to read screenshot uri $shotUri", e)
+                        null
+                    }
+                    if (bytes == null || bytes.isEmpty()) {
+                        result.success(null)
+                        return
+                    }
+
+                    val imagesDir = File(context.cacheDir, "clipboard_images").apply { mkdirs() }
+                    val cacheFile = File(imagesDir, "shot_${shotId}.png")
+                    cacheFile.writeBytes(bytes)
+                    result.success(mapOf(
+                        "type" to "screenshot",
+                        "id" to shotId.toString(),
+                        "dateTakenMs" to dateTakenMs,
+                        "mimeType" to (mimeType ?: "image/png"),
+                        "path" to cacheFile.absolutePath
+                    ))
+                } catch (e: Exception) {
+                    result.error("SCREENSHOT_READ_ERROR", e.message, null)
                 }
             }
 

@@ -502,6 +502,7 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
   }
 
   Future<void> _syncNow() async {
+    await _ensureScreenshotAccess();
     final result = await ClipboardService.instance.syncNow(force: true);
     if (!mounted) return;
     String msg;
@@ -524,6 +525,63 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  /// Explains screenshot sync and requests media access before a manual sync.
+  /// Silent when access is already granted; never prompts on app resume
+  /// (ClipboardService.syncNow only checks screenshots when already allowed).
+  Future<void> _ensureScreenshotAccess() async {
+    if (!Platform.isAndroid || !mounted) return;
+    if (await ClipboardService.isScreenshotAccessGranted()) return;
+    if (ClipboardService.screenshotRationaleDismissed) return;
+    if (!mounted) return;
+
+    final proceed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: true,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                BridgeIcon('image',
+                    color: BridgeColors.clay, size: 22),
+                SizedBox(width: 10),
+                Expanded(child: Text('Sync Screenshots Too?')),
+              ],
+            ),
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Allow Bridge to read your screenshots so you can take a screenshot on this phone and paste it directly on your Windows PC.',
+                  style: TextStyle(fontSize: 14, height: 1.5),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'Only newly taken screenshots are ever sent, and only when you sync. You can skip this — text and copied images keep syncing.',
+                  style: TextStyle(fontSize: 12, color: BridgeColors.muted),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Later'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Allow'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!proceed) {
+      ClipboardService.screenshotRationaleDismissed = true;
+      return;
+    }
+    await ClipboardService.requestScreenshotAccess();
   }
 
   Future<void> _sendFile() async {
