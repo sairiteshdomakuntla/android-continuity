@@ -7,6 +7,8 @@ import { DeviceStorageService, PairedDevice } from './services/DeviceStorageServ
 import { PairingService, LanInterfaceCandidate } from './services/PairingService.js'
 import { FileTransferService } from './services/FileTransferService.js'
 import { CameraSignalService } from './services/CameraSignalService.js'
+// MIC PARKED — Phone as Microphone, revisit later:
+// import { MicSignalService } from './services/MicSignalService.js'
 import { VirtualCameraService } from './services/VirtualCameraService.js'
 import { ClipboardHistoryService } from './services/ClipboardHistoryService.js'
 import { NotificationHistoryService } from './services/NotificationHistoryService.js'
@@ -293,6 +295,9 @@ app.whenReady().then(async () => {
     RENDERER_DIST,
     VITE_DEV_SERVER_URL ?? '',
   )
+
+  // MIC PARKED — Phone as Microphone (Stage 1), revisit later:
+  // MicSignalService.start(() => win)
 
   // 8. Start UDP LAN Discovery Service
   DiscoveryService.start()

@@ -84,6 +84,163 @@ const expandedReplies = new Set<string>()
 let dragCounter = 0
 let isDragging = false
 
+/* MIC PARKED — Phone as Microphone, revisit later. Uncomment this block to restore.
+   (State, WebRTC answerer, and helpers for PC-speaker playback.)
+// ── Phone-as-Microphone state (Stage 1: PC-speaker playback only) ───────────
+// Separate RTCPeerConnection from the camera one so camera and mic run
+// independently. This side is the ANSWERER; Android offers audio-only.
+let micPc: RTCPeerConnection | null = null
+let micActive = false
+let micStream: MediaStream | null = null
+let micRemoteDescSet = false
+let micPendingCandidates: RTCIceCandidateInit[] = []
+const MIC_ICE_CONFIG: RTCConfiguration = {
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+}
+
+function sendMicSignal(payload: unknown): void {
+  window.ipcRenderer.send('mic-signal-send', payload)
+}
+
+function attachMicAudio(): void {
+  const audio = document.getElementById('mic-audio') as HTMLAudioElement | null
+  if (audio && micStream) {
+    if (audio.srcObject !== micStream) {
+      audio.srcObject = micStream
+    }
+    audio.play().catch(() => {})
+  }
+}
+
+function setMicBanner(active: boolean): void {
+  micActive = active
+  const banner = document.getElementById('mic-status-banner')
+  if (banner) {
+    banner.style.display = active ? 'flex' : 'none'
+  }
+  if (active) {
+    attachMicAudio()
+  } else {
+    const audio = document.getElementById('mic-audio') as HTMLAudioElement | null
+    if (audio) {
+      audio.srcObject = null
+    }
+  }
+}
+
+function createMicPeerConnection(): RTCPeerConnection {
+  teardownMicPc()
+  const conn = new RTCPeerConnection(MIC_ICE_CONFIG)
+  micPc = conn
+  micRemoteDescSet = false
+  micPendingCandidates = []
+
+  conn.onicecandidate = (evt) => {
+    sendMicSignal({
+      event: 'ice-candidate',
+      candidate: evt.candidate ? evt.candidate.toJSON() : null,
+    })
+  }
+
+  conn.oniceconnectionstatechange = () => {
+    if (conn.iceConnectionState === 'failed' || conn.iceConnectionState === 'disconnected') {
+      console.warn('[Mic] ICE disconnected — tearing down')
+      stopMic('Connection lost')
+    }
+  }
+
+  conn.onconnectionstatechange = () => {
+    if (conn.connectionState === 'failed' || conn.connectionState === 'closed') {
+      stopMic('Connection lost')
+    }
+  }
+
+  conn.ontrack = (evt) => {
+    micStream = (evt.streams && evt.streams[0]) ? evt.streams[0] : new MediaStream([evt.track])
+    console.log('[Mic] Audio track received — playing through default output device')
+    attachMicAudio()
+    setMicBanner(true)
+    window.ipcRenderer.send('mic-live')
+  }
+
+  return conn
+}
+
+async function handleMicOffer(sdp: string): Promise<void> {
+  console.log('[Mic] Received offer from Android, creating answer…')
+  const conn = createMicPeerConnection()
+  await conn.setRemoteDescription({ type: 'offer', sdp })
+  micRemoteDescSet = true
+
+  while (micPendingCandidates.length > 0) {
+    const cand = micPendingCandidates.shift()
+    if (cand) {
+      try {
+        await conn.addIceCandidate(new RTCIceCandidate(cand))
+      } catch (e) {
+        console.warn('[Mic] addIceCandidate error on buffered candidate:', e)
+      }
+    }
+  }
+
+  const answer = await conn.createAnswer()
+  await conn.setLocalDescription(answer)
+  sendMicSignal({ event: 'answer', sdp: conn.localDescription?.sdp || answer.sdp })
+  console.log('[Mic] WebRTC Answer sent to Android')
+}
+
+async function handleMicIceCandidate(candidate: RTCIceCandidateInit | null): Promise<void> {
+  if (!candidate) return
+  if (!micPc || !micRemoteDescSet) {
+    micPendingCandidates.push(candidate)
+    return
+  }
+  try {
+    await micPc.addIceCandidate(new RTCIceCandidate(candidate))
+  } catch (e) {
+    console.warn('[Mic] addIceCandidate error:', e)
+  }
+}
+
+function teardownMicPc(): void {
+  micRemoteDescSet = false
+  micPendingCandidates = []
+  if (micPc) {
+    micPc.ontrack = null
+    micPc.onicecandidate = null
+    micPc.oniceconnectionstatechange = null
+    micPc.onconnectionstatechange = null
+    try { micPc.close() } catch {}
+    micPc = null
+  }
+  if (micStream) {
+    try {
+      micStream.getTracks().forEach((t) => t.stop())
+    } catch {}
+    micStream = null
+  }
+  const audio = document.getElementById('mic-audio') as HTMLAudioElement | null
+  if (audio) {
+    audio.srcObject = null
+  }
+}
+
+function startMic(): void {
+  sendMicSignal({ event: 'start-mic' })
+  // Banner flips live on first audio track; show "connecting" immediately.
+  setMicBanner(true)
+  const label = document.getElementById('mic-status-text')
+  if (label) label.textContent = 'Connecting to phone microphone…'
+}
+
+function stopMic(_reason = 'Stopped'): void {
+  teardownMicPc()
+  setMicBanner(false)
+  sendMicSignal({ event: 'stop-mic' })
+  window.ipcRenderer.send('mic-stopped')
+}
+// MIC PARKED — end (uncomment the block above to restore). */
+
 // ── Lucide icons (bundled inline SVG, 2px stroke — no CDN dependency) ─────────
 const ICONS: Record<string, string> = {
   zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
@@ -112,6 +269,9 @@ const ICONS: Record<string, string> = {
   wifi: '<path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/>',
   batteryMedium: '<rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/><line x1="6" x2="6" y1="11" y2="13"/><line x1="10" x2="10" y1="11" y2="13"/><line x1="14" x2="14" y1="11" y2="13"/>',
   batteryCharging: '<path d="M14.856 6H16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.935"/><path d="M5.14 18H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2.936"/><path d="m11 7-3 5h4l-3 5"/><line x1="22" x2="22" y1="11" y2="13"/>',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  micOff: '<line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2h-2.83"/><path d="M5 5v9a7 7 0 0 0 12.71 4"/><path d="M9 9v2a3 3 0 0 0 5.12 2.12"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  square: '<rect width="18" height="18" x="3" y="3" rx="2"/>',
 }
 
 function icon(name: string, size = 14): string {
@@ -279,6 +439,7 @@ function render(state: StatusResponse) {
           <button id="btn-send-file" class="btn secondary">${icon('fileUp', 14)}<span>Send File</span></button>
           <button id="btn-ring" class="btn secondary">${icon('bell', 14)}<span>Ring Phone</span></button>
           <button id="btn-remote" class="btn secondary">${icon('mouse', 14)}<span>Remote</span></button>
+          <!-- MIC PARKED: <button id="btn-mic" class="btn secondary" title="Use Phone as Mic">${icon('mic', 14)}<span>Phone Mic</span></button> -->
         </div>
         <div class="actions-row">
           <button id="btn-pair-new" class="btn ghost">${icon('plus', 14)}<span>Pair New</span></button>
@@ -346,6 +507,15 @@ function render(state: StatusResponse) {
         <span class="camera-error-text" id="camera-error-text">Camera setup failed — try restarting Bridge</span>
         <button class="camera-error-close" id="camera-error-close">${icon('x', 13)}</button>
       </div>
+      <!-- MIC PARKED
+      <div class="mic-status" id="mic-status-banner" style="display:none">
+        <span class="mic-live-dot" id="mic-live-dot"></span>
+        <span class="mic-status-text" id="mic-status-text">Phone microphone live</span>
+        <span class="mic-live-badge">Live</span>
+        <button class="mic-stop" id="btn-mic-stop">${icon('square', 11)}<span>Stop</span></button>
+      </div>
+      <audio id="mic-audio" autoplay></audio>
+      -->
       `
       : ''
     }
@@ -442,6 +612,23 @@ function render(state: StatusResponse) {
   document.querySelector('#btn-send-file')?.addEventListener('click', async () => {
     await window.ipcRenderer.invoke('send-file')
   })
+
+  /* MIC PARKED — uncomment to restore Phone-as-Mic buttons.
+  document.querySelector('#btn-mic')?.addEventListener('click', () => {
+    startMic()
+  })
+
+  document.querySelector('#btn-mic-stop')?.addEventListener('click', () => {
+    stopMic()
+  })
+
+  // Re-apply mic banner/audio state after every re-render (render() rebuilds
+  // innerHTML, which would otherwise drop the <audio> srcObject).
+  if (micActive) {
+    setMicBanner(true)
+  }
+  attachMicAudio()
+  */
 
   document.querySelector('#btn-ring')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget as HTMLButtonElement
@@ -724,6 +911,46 @@ window.ipcRenderer.on('camera-setup-progress', (_event, progress: { stage: strin
 window.ipcRenderer.on('camera-error', (_event, data: { error?: string }) => {
   showCameraError(data?.error || 'Camera setup failed — try restarting Bridge')
 })
+
+/* MIC PARKED — Phone-as-Microphone signaling (answerer, PC-speaker playback).
+   Uncomment to restore.
+window.ipcRenderer.on('mic-signal', async (_event, payload: { event: string; sdp?: string; candidate?: RTCIceCandidateInit | null }) => {
+  switch (payload.event) {
+    case 'offer':
+      if (payload.sdp) {
+        await handleMicOffer(payload.sdp)
+      }
+      break
+    case 'ice-candidate':
+      await handleMicIceCandidate(payload.candidate ?? null)
+      break
+    case 'stop-mic':
+      teardownMicPc()
+      setMicBanner(false)
+      window.ipcRenderer.send('mic-stopped')
+      break
+  }
+})
+
+window.ipcRenderer.on('mic-stream-ended', () => {
+  teardownMicPc()
+  setMicBanner(false)
+  window.ipcRenderer.send('mic-stopped')
+})
+
+window.ipcRenderer.on('mic-status-update', (_event, status: { active: boolean }) => {
+  setMicBanner(!!status?.active)
+})
+
+window.addEventListener('beforeunload', () => {
+  if (micActive) {
+    try {
+      sendMicSignal({ event: 'stop-mic' })
+    } catch {}
+    teardownMicPc()
+  }
+})
+*/
 
 window.ipcRenderer.on('file-progress', (_event, progress: FileSendProgress) => {
   const container = document.getElementById('file-progress-container')

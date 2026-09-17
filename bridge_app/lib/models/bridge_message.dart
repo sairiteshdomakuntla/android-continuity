@@ -4,6 +4,7 @@ enum MessageType {
   clipboard,
   file,
   cameraSignal,
+  micSignal,
   ping,
   notification,
   device,
@@ -12,6 +13,7 @@ enum MessageType {
   String toJson() {
     return switch (this) {
       MessageType.cameraSignal => 'camera-signal',
+      MessageType.micSignal => 'mic-signal',
       MessageType.remoteInput => 'remote-input',
       _ => name,
     };
@@ -22,6 +24,7 @@ enum MessageType {
       'clipboard' => MessageType.clipboard,
       'file' => MessageType.file,
       'camera-signal' => MessageType.cameraSignal,
+      'mic-signal' => MessageType.micSignal,
       'ping' => MessageType.ping,
       'notification' => MessageType.notification,
       'device' => MessageType.device,

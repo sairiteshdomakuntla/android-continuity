@@ -869,6 +869,70 @@ body {
   background: rgba(188, 94, 54, 0.14);
 }
 
+/* MIC PARKED — Phone-as-Microphone styles, uncomment to restore.
+.mic-status {
+  background: var(--card);
+  border: 1px solid var(--sand);
+  border-radius: 14px;
+  padding: 12px 12px 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: var(--shadow-card);
+  animation: panel-in 0.2s var(--ease-calm);
+}
+.mic-live-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--sage);
+  flex-shrink: 0;
+}
+.mic-status-text {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mic-live-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #fdf8ef;
+  background: var(--clay);
+  padding: 4px 11px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+.mic-stop {
+  background: var(--clay);
+  color: #fdf8ef;
+  border: none;
+  border-radius: 10px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  transition: background 0.15s var(--ease-calm);
+}
+.mic-stop:hover {
+  background: var(--clay-deep);
+}
+#mic-audio {
+  display: none;
+}
+/* MIC PARKED — end. */
+
 /* ── QR pairing card ──────────────────────────────────────────── */
 .qr-card {
   background: var(--card);

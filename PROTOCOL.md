@@ -96,6 +96,7 @@ Inside the decrypted plaintext, messages follow the standard envelope schema:
 | `payload` | `object` | Type-specific data (see below). |
 
 Valid `type` values: `clipboard | file | camera-signal | ping | notification | device | remote-input`.
+<!-- MIC PARKED — Phone as Microphone (`mic-signal`), revisit later. Uncomment to restore. -->
 
 ---
 
@@ -386,6 +387,43 @@ action row.
   }
 }
 ```
+
+<!-- MIC PARKED — Phone as Microphone (`mic-signal` section), revisit later. Uncomment to restore.
+
+### `mic-signal`
+
+"Phone as Microphone" (Stage 1) — streams the Android microphone to the
+Windows PC speakers. Separate audio-only WebRTC peer connection from the
+camera one, same offer/answer/ICE pattern over the same encrypted socket.
+Stage 1 plays through the PC's default output device only; it is NOT a
+system-wide selectable input (no virtual audio driver — deferred, same as
+camera had a Stage 1/Stage 2 split).
+
+Windows is the initiator (`start-mic` / `stop-mic`); Android is the offerer
+(audio-only, no video track). Either side, socket disconnect, or app close
+tears down the peer connection and releases the microphone.
+
+```json
+{
+  "eventId": "...",
+  "type": "mic-signal",
+  "origin": "windows",
+  "timestamp": "...",
+  "payload": {
+    "event": "start-mic"
+  }
+}
+```
+
+| `payload.event` | Direction | Description |
+|---|---|---|
+| `start-mic` | Windows → Android | Open mic screen (permission if needed) and offer audio |
+| `stop-mic` | either | Tear down mic peer connection, release mic |
+| `offer` | Android → Windows | Audio-only SDP offer (`sdp`) |
+| `answer` | Windows → Android | SDP answer (`sdp`) |
+| `ice-candidate` | either | ICE candidate (`candidate`, null = gathering complete) |
+
+-->
 
 ---
 

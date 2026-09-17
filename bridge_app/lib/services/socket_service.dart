@@ -317,6 +317,12 @@ class SocketService {
         BackgroundService.sendCameraSignal(Map<String, dynamic>.from(msg.payload));
         return;
       }
+      // MIC PARKED — Phone as Microphone, revisit later:
+      // if (msg.type == MessageType.micSignal) {
+      //   debugPrint('[SocketService] UI Proxy: routing mic-signal [${msg.payload['event']}] to BackgroundService');
+      //   BackgroundService.sendMicSignal(Map<String, dynamic>.from(msg.payload));
+      //   return;
+      // }
       if (msg.type == MessageType.remoteInput) {
         debugPrint('[SocketService] UI Proxy: routing remote-input [${msg.payload['event']}] to BackgroundService');
         BackgroundService.sendRemoteInput(Map<String, dynamic>.from(msg.payload));

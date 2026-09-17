@@ -7,6 +7,8 @@ import 'theme/bridge_icons.dart';
 import 'services/socket_service.dart';
 import 'services/clipboard_service.dart';
 import 'services/camera_service.dart';
+// MIC PARKED — Phone as Microphone, revisit later:
+// import 'services/mic_service.dart';
 import 'services/file_transfer_service.dart';
 import 'services/pairing_storage_service.dart';
 import 'services/discovery_service.dart';
@@ -19,6 +21,8 @@ import 'services/remote_input_service.dart';
 import 'screens/scan_pair_screen.dart';
 import 'screens/share_progress_screen.dart';
 import 'screens/camera_screen.dart';
+// MIC PARKED — Phone as Microphone, revisit later:
+// import 'screens/mic_screen.dart';
 import 'screens/remote_screen.dart';
 import 'theme/bridge_theme.dart';
 
@@ -44,6 +48,8 @@ void main() async {
   NotificationHistoryService.instance.init();
   FileTransferService.init(isBackgroundService: false);
   CameraService.instance.init();
+  // MIC PARKED — Phone as Microphone, revisit later:
+  // MicService.instance.init();
   RemoteInputService.instance.init();
 
   RemoteInputService.instance.onOpenRemoteRequested = () {
@@ -77,6 +83,26 @@ void main() async {
       debugPrint('[main] Returned from remote-launched CameraScreen');
     });
   };
+
+  /* MIC PARKED — Phone as Microphone, revisit later. Uncomment to restore.
+  MicService.instance.onStartMicRequested = () {
+    if (MicService.instance.isStreaming.value) return;
+    final nav = rootNavigatorKey.currentState;
+    if (nav == null) return;
+    final url = SocketService.instance.currentUrl ?? '';
+    final pcName = url.isNotEmpty
+        ? url.replaceFirst(RegExp(r'https?://'), '').split(':').first
+        : 'Windows PC';
+    debugPrint('[main] Remote start-mic received — pushing MicScreen(pcName: $pcName)');
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) => MicScreen(pcName: pcName),
+      ),
+    ).then((_) {
+      debugPrint('[main] Returned from remote-launched MicScreen');
+    });
+  };
+  */
 
   runApp(BridgeApp(isPaired: pairing != null));
 }

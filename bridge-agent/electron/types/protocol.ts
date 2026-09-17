@@ -1,4 +1,4 @@
-export type MessageType = 'clipboard' | 'file' | 'camera-signal' | 'ping' | 'notification' | 'device' | 'remote-input'
+export type MessageType = 'clipboard' | 'file' | 'camera-signal' | 'mic-signal' | 'ping' | 'notification' | 'device' | 'remote-input'
 export type Origin = 'android' | 'windows'
 
 export interface BridgeMessage<T = unknown> {
@@ -72,6 +72,24 @@ export type CameraSignalPayload =
   | CameraOfferPayload
   | CameraAnswerPayload
   | CameraIcePayload
+
+// ── Mic signaling ("Phone as Microphone") ───────────────────────────────────
+// Separate audio-only peer connection from the camera one so camera and mic
+// can run independently. Same offer/answer/ICE pattern over the same
+// encrypted socket — Stage 1 plays through PC speakers only (no virtual
+// audio driver, so not a system-wide selectable input yet).
+export interface MicStartPayload    { event: 'start-mic' }
+export interface MicStopPayload     { event: 'stop-mic' }
+export interface MicOfferPayload    { event: 'offer';         sdp: string }
+export interface MicAnswerPayload   { event: 'answer';        sdp: string }
+export interface MicIcePayload      { event: 'ice-candidate'; candidate: RTCIceCandidateInit | null }
+
+export type MicSignalPayload =
+  | MicStartPayload
+  | MicStopPayload
+  | MicOfferPayload
+  | MicAnswerPayload
+  | MicIcePayload
 
 // ── Notification sync ────────────────────────────────────────────────────────
 
