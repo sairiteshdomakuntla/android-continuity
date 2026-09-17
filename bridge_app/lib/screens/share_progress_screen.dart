@@ -219,7 +219,7 @@ class _BottomSheet extends StatelessWidget {
                 child: Text(
                   statusText,
                   style: const TextStyle(
-                    fontFamily: 'Fraunces',
+                    
                     color: BridgeColors.ink,
                     fontSize: 17,
                     fontWeight: FontWeight.w600,
@@ -234,7 +234,7 @@ class _BottomSheet extends StatelessWidget {
               Text(
                 currentFileName,
                 style: const TextStyle(
-                  fontFamily: 'NunitoSans',
+                  
                   color: BridgeColors.inkSoft,
                   fontSize: 13,
                 ),
@@ -256,7 +256,7 @@ class _BottomSheet extends StatelessWidget {
             Text(
               totalCount > 1 ? '$sentCount / $totalCount files' : '',
               style: const TextStyle(
-                fontFamily: 'NunitoSans',
+                
                 color: BridgeColors.muted,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -277,7 +277,7 @@ class _BottomSheet extends StatelessWidget {
               child: Text(
                 errorText ?? 'Unknown error',
                 style: const TextStyle(
-                  fontFamily: 'NunitoSans',
+                  
                   color: BridgeColors.clayInk,
                   fontSize: 13,
                   fontWeight: FontWeight.w600,

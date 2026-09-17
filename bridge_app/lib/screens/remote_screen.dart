@@ -478,7 +478,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
                             ? 'Controlling $_host'
                             : 'Not connected to $_host',
                         style: const TextStyle(
-                          fontFamily: 'NunitoSans',
+                          
                           color: BridgeColors.ink,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -549,7 +549,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
                           'Tap to click • Drag to move\nTwo-finger drag to scroll\nTwo-finger tap = right click',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            fontFamily: 'NunitoSans',
+                            
                             fontSize: 13,
                             height: 1.6,
                             color: BridgeColors.inkSoft,
@@ -573,7 +573,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
                       'Not connected\nReconnect Bridge on your PC to continue',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontFamily: 'NunitoSans',
+                        
                         fontSize: 13,
                         height: 1.6,
                         color: BridgeColors.inkSoft,
@@ -629,7 +629,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
             const Text(
               'Sensitivity',
               style: TextStyle(
-                fontFamily: 'NunitoSans',
+                
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: BridgeColors.ink,
@@ -666,7 +666,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
                 '${_sensitivity.toStringAsFixed(1)}×',
                 textAlign: TextAlign.right,
                 style: const TextStyle(
-                  fontFamily: 'NunitoSans',
+                  
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: BridgeColors.clayDeep,
@@ -774,7 +774,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
                                         ? 'Connected — type to send to PC'
                                         : 'Not connected',
                                     style: const TextStyle(
-                                      fontFamily: 'NunitoSans',
+                                      
                                       fontSize: 13,
                                       height: 1.6,
                                       color: BridgeColors.inkSoft,
@@ -806,7 +806,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
                             textInputAction: TextInputAction.send,
                             maxLines: 1,
                             style: const TextStyle(
-                              fontFamily: 'NunitoSans',
+                              
                               fontSize: 15,
                               color: BridgeColors.ink,
                             ),
@@ -1024,7 +1024,7 @@ class _RemoteTab extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontFamily: 'NunitoSans',
+                    
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                     color: color,
@@ -1109,7 +1109,7 @@ class _MediaButton extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontFamily: 'NunitoSans',
+                
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: fg,

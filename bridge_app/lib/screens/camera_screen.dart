@@ -345,7 +345,7 @@ class _CameraScreenState extends State<CameraScreen>
                           child: Text(
                             text,
                             style: const TextStyle(
-                              fontFamily: 'NunitoSans',
+                              
                               color: BridgeColors.ink,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -376,7 +376,7 @@ class _CameraScreenState extends State<CameraScreen>
                 child: const Text(
                   'LIVE',
                   style: TextStyle(
-                    fontFamily: 'NunitoSans',
+                    
                     color: BridgeColors.creamText,
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -433,7 +433,7 @@ class _CameraScreenState extends State<CameraScreen>
             Text(
               'Starting camera…',
               style: TextStyle(
-                fontFamily: 'NunitoSans',
+                
                 color: BridgeColors.brandCream,
                 fontSize: 14,
               ),
@@ -479,7 +479,7 @@ class _CameraScreenState extends State<CameraScreen>
               const Text(
                 'Camera permission denied',
                 style: TextStyle(
-                  fontFamily: 'Fraunces',
+                  
                   color: BridgeColors.ink,
                   fontSize: 20,
                   fontWeight: FontWeight.w600,
@@ -489,7 +489,7 @@ class _CameraScreenState extends State<CameraScreen>
               const Text(
                 'Please grant camera and microphone access in Settings to use Bridge as a webcam.',
                 style: TextStyle(
-                  fontFamily: 'NunitoSans',
+                  
                   color: BridgeColors.inkSoft,
                   fontSize: 14,
                   height: 1.5,
@@ -559,7 +559,7 @@ class _ControlButton extends StatelessWidget {
           const SizedBox(height: 6),
           Text(label,
               style: const TextStyle(
-                fontFamily: 'NunitoSans',
+                
                 color: BridgeColors.inkSoft,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,

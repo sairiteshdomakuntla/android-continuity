@@ -23,6 +23,8 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
 
   bool _isProcessing = false;
   String? _statusText;
+  bool _torchOn = false;
+  bool _showHelp = false;
 
   @override
   void dispose() {
@@ -45,7 +47,7 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
   Future<void> _processScannedData(String raw) async {
     setState(() {
       _isProcessing = true;
-      _statusText = 'Verifying QR code...';
+      _statusText = 'Verifying QR code…';
     });
 
     try {
@@ -55,7 +57,7 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
       final String? pairingKey = data['pairingKey'];
 
       if (ip == null || pairingKey == null || pairingKey.isEmpty) {
-        throw Exception('Invalid QR code content. Expected Bridge pairing data.');
+        throw Exception('This QR code is not a Bridge pairing code.');
       }
 
       await _performPairing(ip, port, pairingKey);
@@ -63,7 +65,7 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Pairing failed: ${e.toString().replaceAll('Exception: ', '')}'),
+          content: Text('Could not pair: ${e.toString().replaceAll('Exception: ', '')}'),
         ),
       );
       setState(() {
@@ -76,14 +78,14 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
   Future<void> _performPairing(String ip, int port, String pairingKey) async {
     debugPrint('[ScanPair] Parsed QR code: target host=$ip:$port, key=${pairingKey.substring(0, 8)}...');
     setState(() {
-      _statusText = 'Connecting to $ip:$port...';
+      _statusText = 'Connecting to $ip…';
     });
 
     final serverUrl = 'http://$ip:$port';
     final deviceId = await PairingStorageService.instance.getOrCreateDeviceId();
 
     setState(() {
-      _statusText = 'Exchanging pairing handshake...';
+      _statusText = 'Securing connection…';
     });
 
     debugPrint('[ScanPair] Starting performPairHandshake to $serverUrl with deviceId $deviceId');
@@ -95,8 +97,8 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
     );
     debugPrint('[ScanPair] performPairHandshake completed successfully!');
 
-    // Save pairing credentials in secure storage
-    await PairingStorageService.instance.savePairing(
+    // Single-PC UI: this QR replaces any previous pairing.
+    await PairingStorageService.instance.replacePairing(
       ip: ip,
       port: port,
       pairingKey: pairingKey,
@@ -109,9 +111,7 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Paired successfully with Windows Bridge!'),
-      ),
+      const SnackBar(content: Text('Connected — setup continues on the next screen')),
     );
 
     Navigator.of(context).pushReplacement(
@@ -119,151 +119,330 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
     );
   }
 
+  Future<void> _toggleTorch() async {
+    try {
+      await _scannerController.toggleTorch();
+      if (mounted) setState(() => _torchOn = !_torchOn);
+    } catch (_) {}
+  }
+
   void _showManualEntryDialog() {
     final ipController = TextEditingController();
     final portController = TextEditingController(text: '4000');
     final keyController = TextEditingController();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Manual Pairing'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: ipController,
-                decoration: const InputDecoration(
-                  labelText: 'Host IP Address',
-                  hintText: 'e.g. 192.168.0.112',
-                ),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: portController,
-                decoration: const InputDecoration(labelText: 'Port'),
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: keyController,
-                decoration: const InputDecoration(
-                  labelText: 'Pairing Key (Base64)',
-                  hintText: 'Paste pairing key',
-                ),
-              ),
-            ],
-          ),
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 12,
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              final ip = ipController.text.trim();
-              final port = int.tryParse(portController.text.trim()) ?? 4000;
-              final key = keyController.text.trim();
-              if (ip.isNotEmpty && key.isNotEmpty) {
-                _performPairing(ip, port, key);
-              }
-            },
-            child: const Text('Connect'),
-          ),
-        ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 8),
+            const Text('Enter code manually', style: BridgeText.panelTitle),
+            const SizedBox(height: 4),
+            const Text(
+              'Find the IP, port and pairing key in the Bridge app on your PC.',
+              style: BridgeText.caption,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: ipController,
+              decoration: const InputDecoration(labelText: 'PC IP address', hintText: 'e.g. 192.168.1.43'),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: portController,
+              decoration: const InputDecoration(labelText: 'Port'),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: keyController,
+              decoration: const InputDecoration(labelText: 'Pairing key'),
+              maxLines: 2,
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                final ip = ipController.text.trim();
+                final port = int.tryParse(portController.text.trim()) ?? 4000;
+                final key = keyController.text.trim();
+                if (ip.isNotEmpty && key.isNotEmpty) {
+                  _performPairing(ip, port, key);
+                }
+              },
+              child: const Text('Connect'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final canPop = Navigator.of(context).canPop();
     return Scaffold(
       backgroundColor: BridgeColors.linen,
       appBar: AppBar(
-        title: const Text('Pair with Bridge', style: BridgeText.panelTitle),
-        backgroundColor: BridgeColors.linen,
-        foregroundColor: BridgeColors.ink,
-        elevation: 0,
+        automaticallyImplyLeading: canPop,
+        title: const Text('Connect to your PC'),
         actions: [
           IconButton(
-            icon: BridgeIcon('keyboard', size: 20),
-            color: BridgeColors.inkSoft,
-            tooltip: 'Manual Entry',
+            icon: const BridgeIcon('keyboard', size: 20),
+            tooltip: 'Enter manually',
             onPressed: _isProcessing ? null : _showManualEntryDialog,
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          // ── QR Scanner Camera ──────────────────────────────────────────
-          MobileScanner(
-            controller: _scannerController,
-            onDetect: _onDetect,
-          ),
-
-          // ── Scanner Overlay Frame ─────────────────────────────────────
-          Center(
-            child: Container(
-              width: 260,
-              height: 260,
-              decoration: BoxDecoration(
-                border: Border.all(color: BridgeColors.clay, width: 3),
-                borderRadius: BorderRadius.circular(20),
-              ),
-            ),
-          ),
-
-          // ── Guidance Banner ────────────────────────────────────────────
-          Positioned(
-            bottom: 60,
-            left: 24,
-            right: 24,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              decoration: BoxDecoration(
-                color: BridgeColors.card,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: BridgeColors.sand),
-                boxShadow: BridgeShadows.card,
-              ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── How pairing works ──
+            const BridgeCard(
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (_isProcessing) ...[
-                    const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: BridgeColors.clay,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _statusText ?? 'Pairing...',
-                      textAlign: TextAlign.center,
-                      style: BridgeText.body,
-                    ),
-                  ] else ...[
-                    BridgeIcon('scanLine',
-                        color: BridgeColors.clay, size: 28),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Point camera at the QR code on your PC screen',
-                      textAlign: TextAlign.center,
-                      style: BridgeText.body,
-                    ),
-                  ],
+                  Text('Scan once — done', style: BridgeText.panelTitle),
+                  SizedBox(height: 4),
+                  Text(
+                    'Pairing takes under a minute. After that Bridge stays connected automatically.',
+                    style: BridgeText.caption,
+                  ),
+                  SizedBox(height: 12),
+                  _StepRow(n: '1', text: 'Open Bridge on your computer'),
+                  SizedBox(height: 8),
+                  _StepRow(n: '2', text: 'Choose “Pair new” to show the code'),
+                  SizedBox(height: 8),
+                  _StepRow(n: '3', text: 'Point this camera at the code'),
                 ],
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+
+            // ── Scanner ──
+            Container(
+              decoration: BoxDecoration(
+                color: BridgeColors.card,
+                border: Border.all(color: BridgeColors.sand),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: BridgeShadows.card,
+              ),
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: SizedBox(
+                      height: 300,
+                      width: double.infinity,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          MobileScanner(
+                            controller: _scannerController,
+                            onDetect: _onDetect,
+                          ),
+                          // Dim + corner brackets for a native scanner feel
+                          IgnorePointer(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: Colors.black.withAlpha(20)),
+                              ),
+                            ),
+                          ),
+                          Center(
+                            child: SizedBox(
+                              width: 210,
+                              height: 210,
+                              child: CustomPaint(painter: _CornerPainter()),
+                            ),
+                          ),
+                          Positioned(
+                            top: 10,
+                            right: 10,
+                            child: Material(
+                              color: Colors.black.withAlpha(140),
+                              borderRadius: BorderRadius.circular(999),
+                              child: InkWell(
+                                onTap: _toggleTorch,
+                                borderRadius: BorderRadius.circular(999),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _torchOn ? Icons.flash_on : Icons.flash_off,
+                                        size: 15,
+                                        color: Colors.white,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _torchOn ? 'On' : 'Light',
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (_isProcessing)
+                            Container(
+                              color: Colors.black.withAlpha(120),
+                              alignment: Alignment.center,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const SizedBox(
+                                    width: 28,
+                                    height: 28,
+                                    child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    _statusText ?? 'Pairing…',
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const BridgeIcon('shieldCheck', size: 15, color: BridgeColors.sageDeep),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Encrypted with AES-256. Your devices talk over local Wi-Fi only.',
+                          style: BridgeText.caption,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            OutlinedButton.icon(
+              onPressed: _isProcessing ? null : _showManualEntryDialog,
+              icon: const BridgeIcon('keyboard', size: 16),
+              label: const Text('Can\'t scan? Enter code manually'),
+            ),
+            TextButton.icon(
+              onPressed: () => setState(() => _showHelp = !_showHelp),
+              icon: BridgeIcon(_showHelp ? 'x' : 'fileText', size: 14),
+              label: Text(_showHelp ? 'Hide help' : 'QR code won\'t scan?'),
+            ),
+            AnimatedCrossFade(
+              firstChild: const SizedBox.shrink(),
+              secondChild: const BridgeCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Make sure:', style: BridgeText.notifTitle),
+                    SizedBox(height: 8),
+                    Text('• Phone and PC are on the same Wi-Fi network\n• The QR code on your PC is fully visible and bright\n• Bridge is open on your PC while you scan', style: BridgeText.bodySoft),
+                  ],
+                ),
+              ),
+              crossFadeState: _showHelp ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 180),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _StepRow extends StatelessWidget {
+  final String n;
+  final String text;
+  const _StepRow({required this.n, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 24,
+          height: 24,
+          decoration: const BoxDecoration(color: BridgeColors.claySoft, shape: BoxShape.circle),
+          alignment: Alignment.center,
+          child: Text(n, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: BridgeColors.clay)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Text(text, style: BridgeText.bodySoft)),
+      ],
+    );
+  }
+}
+
+class _CornerPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    const l = 28.0;
+    // top-left
+    canvas.drawPath(_corner(const Offset(0, 0), l, 0), paint);
+    // top-right
+    canvas.drawPath(_corner(Offset(size.width, 0), l, 1), paint);
+    // bottom-right
+    canvas.drawPath(_corner(Offset(size.width, size.height), l, 2), paint);
+    // bottom-left
+    canvas.drawPath(_corner(Offset(0, size.height), l, 3), paint);
+  }
+
+  Path _corner(Offset o, double l, int quadrant) {
+    final p = Path();
+    if (quadrant == 0) {
+      p.moveTo(o.dx, o.dy + l);
+      p.lineTo(o.dx, o.dy);
+      p.lineTo(o.dx + l, o.dy);
+    } else if (quadrant == 1) {
+      p.moveTo(o.dx - l, o.dy);
+      p.lineTo(o.dx, o.dy);
+      p.lineTo(o.dx, o.dy + l);
+    } else if (quadrant == 2) {
+      p.moveTo(o.dx, o.dy - l);
+      p.lineTo(o.dx, o.dy);
+      p.lineTo(o.dx - l, o.dy);
+    } else {
+      p.moveTo(o.dx + l, o.dy);
+      p.lineTo(o.dx, o.dy);
+      p.lineTo(o.dx, o.dy - l);
+    }
+    return p;
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

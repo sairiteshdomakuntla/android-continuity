@@ -177,6 +177,38 @@ ipcMain.handle('select-ip', async (_event, ip: string) => {
   return pairingInfo
 })
 
+ipcMain.handle('unpair-device', async (_event, deviceId: string) => {
+  DeviceStorageService.removeDevice(deviceId)
+  const devices = DeviceStorageService.loadDevices()
+  if (devices.length === 0) {
+    SocketService.setEncryptionKey(null)
+    DeviceService.clearBattery()
+    const pairingInfo = await generateNewPairing()
+    win?.webContents.send('pairing-state-changed', {
+      isPairingActive: true,
+      currentPairing: pairingInfo,
+      devices: [],
+    })
+    return { devices, pairingStarted: true }
+  }
+  // Transport still uses a single symmetric key (pre-existing limitation):
+  // re-anchor it to the remaining primary device so sync keeps working.
+  const primary = devices[0]
+  SocketService.setEncryptionKey(Buffer.from(primary.pairingKey, 'base64'))
+  return { devices, pairingStarted: false }
+})
+
+ipcMain.handle('rename-device', async (_event, deviceId: string, name: string) => {
+  const clean = (name || '').trim().slice(0, 40)
+  if (!clean) return { success: false }
+  const devices = DeviceStorageService.loadDevices()
+  const idx = devices.findIndex((d) => d.deviceId === deviceId)
+  if (idx < 0) return { success: false }
+  devices[idx] = { ...devices[idx], name: clean }
+  DeviceStorageService.saveDevices(devices)
+  return { success: true, devices }
+})
+
 ipcMain.handle('unpair-all', async () => {
   DeviceStorageService.clearAll()
   SocketService.setEncryptionKey(null)

@@ -274,6 +274,7 @@ const ICONS: Record<string, string> = {
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   micOff: '<line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2h-2.83"/><path d="M5 5v9a7 7 0 0 0 12.71 4"/><path d="M9 9v2a3 3 0 0 0 5.12 2.12"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><line x1="12" x2="12" y1="19" y2="22"/>',
   square: '<rect width="18" height="18" x="3" y="3" rx="2"/>',
+  pencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
 }
 
 function icon(name: string, size = 14): string {
@@ -309,6 +310,56 @@ function escapeHtml(str: string): string {
 function appInitial(appName: string): string {
   const trimmed = (appName || 'P').trim()
   return escapeHtml(trimmed.charAt(0).toUpperCase() || 'P')
+}
+
+// ── Modal dialogs (rendered outside #app so re-renders never wipe them) ────
+
+function ensureModalRoot(): HTMLElement {
+  let root = document.getElementById('modal-root')
+  if (!root) {
+    root = document.createElement('div')
+    root.id = 'modal-root'
+    document.body.appendChild(root)
+  }
+  return root
+}
+
+function confirmDialog(opts: {
+  title: string
+  message: string
+  confirmLabel?: string
+  danger?: boolean
+}): Promise<boolean> {
+  const root = ensureModalRoot()
+  return new Promise((resolve) => {
+    const done = (v: boolean) => {
+      root.innerHTML = ''
+      document.removeEventListener('keydown', onKey)
+      resolve(v)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') done(false)
+    }
+    document.addEventListener('keydown', onKey)
+    root.innerHTML = `
+      <div class="modal-backdrop">
+        <div class="modal" role="dialog" aria-modal="true">
+          <h3 class="modal-title">${escapeHtml(opts.title)}</h3>
+          <p class="modal-msg">${escapeHtml(opts.message)}</p>
+          <div class="modal-actions">
+            <button class="btn cancel" data-m-cancel>Cancel</button>
+            <button class="btn confirm ${opts.danger ? 'danger' : ''}" data-m-ok>${escapeHtml(opts.confirmLabel || 'Confirm')}</button>
+          </div>
+        </div>
+      </div>
+    `
+    root.querySelector('[data-m-cancel]')?.addEventListener('click', () => done(false))
+    root.querySelector('[data-m-ok]')?.addEventListener('click', () => done(true))
+    root.querySelector('.modal-backdrop')?.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).classList.contains('modal-backdrop')) done(false)
+    })
+    ;(root.querySelector('[data-m-ok]') as HTMLButtonElement | null)?.focus()
+  })
 }
 
 function clipTypeIcon(contentType: ClipboardHistoryItem['contentType']): string {
@@ -381,14 +432,11 @@ function renderNotificationItem(item: NotificationItem): string {
 
 function renderClipboardItem(item: ClipboardHistoryItem): string {
   const typeLabel = (item.contentType || 'text').toUpperCase()
-  const originIcon = item.origin === 'android' ? icon('smartphone', 11) : icon('monitor', 11)
-  const originLabel = item.origin === 'android' ? 'Android' : 'Windows'
 
   return `
     <div class="clipboard-item" data-id="${item.id}" title="Click to copy locally">
       <div class="clip-top">
         <span class="clip-type ${item.contentType || 'text'}">${clipTypeIcon(item.contentType)}<span>${typeLabel}</span></span>
-        <span class="clip-origin">${originIcon}<span>${originLabel} · ${getRelativeTime(item.timestamp)}</span></span>
       </div>
       ${item.kind === 'image' && item.imageThumbnail
       ? `<div class="clip-image-wrap"><img class="clip-image" src="${item.imageThumbnail}" alt="Clipboard image" /></div>`
@@ -400,16 +448,27 @@ function renderClipboardItem(item: ClipboardHistoryItem): string {
 
 function render(state: StatusResponse) {
   lastStatus = state
-  const hasDevices = state.devices.length > 0
+  const devices = state.devices || []
+  const hasDevices = devices.length > 0
   const isPairing = state.isPairingActive && state.currentPairing
   const pairing = state.currentPairing
-  const device = hasDevices ? state.devices[0] : null
+  const primary = hasDevices ? devices[0] : null
+
+  const connTitle = !hasDevices
+    ? 'Not connected'
+    : (primary!.name || 'Android Device')
+  const connSub = !hasDevices
+    ? 'Pair your phone to start syncing'
+    : batteryStatus
+      ? `Phone battery ${batteryStatus.level}%${batteryStatus.isCharging ? ' · Charging' : ''}`
+      : 'Encrypted link · AES-256-GCM'
 
   appEl.innerHTML = `
     <div class="top-bar">
       <div class="top-bar-left">
-        <span class="brand-icon">${icon('sprout', 14)}</span>
+        <span class="brand-icon">${icon('link', 14)}</span>
         <span class="brand-name">Bridge</span>
+        <span class="conn-pill ${hasDevices ? 'on' : ''}"><span class="dot"></span><span>${hasDevices ? 'Paired' : 'Not paired'}</span></span>
       </div>
       <div class="top-bar-right">
         <button class="win-btn" id="btn-minimize" title="Minimize">${icon('minus', 14)}</button>
@@ -418,19 +477,14 @@ function render(state: StatusResponse) {
     </div>
 
     <div class="scroll">
-      <section class="status-hero">
-        <div class="status-row">
+      <section class="conn-card">
+        <div class="conn-top">
           <span class="status-dot ${hasDevices ? 'connected' : ''}"></span>
-          <h1 class="status-main">${hasDevices ? escapeHtml(device!.name || 'Android Device') : 'Not Connected'}</h1>
+          <h1 class="conn-title">${escapeHtml(connTitle)}</h1>
+          ${hasDevices ? `<span class="enc-badge">${icon('shieldCheck', 11)}<span>Encrypted</span></span>` : ''}
         </div>
-        ${hasDevices
-      ? `<span class="enc-badge">${icon('shieldCheck', 11)}<span>Encrypted · AES-256-GCM</span></span>
-        ${batteryStatus
-          ? `<span class="battery-badge ${batteryStatus.isCharging ? 'charging' : ''}">${icon(batteryStatus.isCharging ? 'batteryCharging' : 'batteryMedium', 13)}<span>${batteryStatus.level}%${batteryStatus.isCharging ? ' · Charging' : ''}</span></span>`
-          : ''
-        }`
-      : `<p class="status-sub">Pair your phone to start syncing</p>`
-    }
+        <p class="conn-sub">${escapeHtml(connSub)}</p>
+        <div class="conn-note">${icon('check', 13)}<span>Notifications, clipboard and files arrive automatically once paired.</span></div>
       </section>
 
       ${hasDevices
@@ -455,6 +509,7 @@ function render(state: StatusResponse) {
       ${isPairing && pairing
       ? `
       <div class="qr-card">
+        <span class="panel-title">Pair a new device</span>
         <div class="qr-img"><img src="${pairing.qrDataUrl}" alt="Pairing QR code" /></div>
         <div class="ip-pill">${icon('wifi', 13)}<span>${pairing.ip}:${pairing.port}</span></div>
         <div class="adapter-select">
@@ -478,7 +533,7 @@ function render(state: StatusResponse) {
           </div>
         </div>
         <p class="instruction">
-          Open <strong>Bridge</strong> on your phone and scan this QR code to establish secure pairing.
+          On your phone, open <strong>Bridge</strong>, tap the <strong>QR icon</strong> and point the camera at this code. Takes under a minute.
         </p>
       </div>
       `
@@ -488,9 +543,9 @@ function render(state: StatusResponse) {
       ${!isPairing && !hasDevices
       ? `
       <div class="empty-state">
-        <span class="empty-icon">${icon('sprout', 24)}</span>
-        <p>No devices paired yet.<br />Generate a QR code to link your phone.</p>
-        <button id="btn-start-pair" class="btn primary">${icon('plus', 15)}<span>Generate Pairing QR</span></button>
+        <span class="empty-icon">${icon('smartphone', 24)}</span>
+        <p>No phones connected yet.<br />Show a pairing code and scan it with the Bridge app.</p>
+        <button id="btn-start-pair" class="btn primary">${icon('plus', 15)}<span>Show pairing code</span></button>
       </div>
       `
       : ''
@@ -600,10 +655,10 @@ function render(state: StatusResponse) {
 
     <div id="drop-overlay" class="drop-overlay ${isDragging ? 'active' : ''}">
       <div class="drop-zone ${hasDevices ? '' : 'unpaired'}">
-        <div class="drop-zone-icon-wrap">${icon(hasDevices ? 'fileUp' : 'sprout', 26)}</div>
-        <h2 class="drop-zone-title" id="drop-zone-title">${hasDevices ? `Drop to send to ${escapeHtml(device?.name || 'Android Device')}` : 'Pair a device first'}</h2>
+        <div class="drop-zone-icon-wrap">${icon(hasDevices ? 'fileUp' : 'smartphone', 26)}</div>
+        <h2 class="drop-zone-title" id="drop-zone-title">${hasDevices ? `Drop to send to ${escapeHtml(primary?.name || 'Android Device')}` : 'Pair a device first'}</h2>
         <p class="drop-zone-sub" id="drop-zone-sub">${hasDevices ? 'Release to transfer sequentially' : 'Connect your phone to send files'}</p>
-        <span class="drop-zone-badge" id="drop-zone-badge">${hasDevices ? `${icon('shieldCheck', 11)}<span>Encrypted · AES-256-GCM</span>` : `${icon('sprout', 11)}<span>No device paired</span>`}</span>
+        <span class="drop-zone-badge" id="drop-zone-badge">${hasDevices ? `${icon('shieldCheck', 11)}<span>Encrypted · AES-256-GCM</span>` : `${icon('smartphone', 11)}<span>No device paired</span>`}</span>
       </div>
     </div>
   `
@@ -707,7 +762,13 @@ function render(state: StatusResponse) {
   })
 
   document.querySelector('#btn-unpair')?.addEventListener('click', async () => {
-    if (confirm('Are you sure you want to unpair this device?')) {
+    const ok = await confirmDialog({
+      title: 'Unpair this device?',
+      message: 'Bridge will forget this phone, delete encryption keys and show a fresh pairing code.',
+      confirmLabel: 'Unpair',
+      danger: true,
+    })
+    if (ok) {
       await window.ipcRenderer.invoke('unpair-all')
       refresh()
     }
@@ -735,7 +796,13 @@ function render(state: StatusResponse) {
   })
 
   document.querySelector('#btn-quit-app')?.addEventListener('click', async () => {
-    if (confirm('Quit Bridge completely? File sync and notifications will stop until you reopen it.')) {
+    const ok = await confirmDialog({
+      title: 'Quit Bridge?',
+      message: 'File sync and notifications will stop until you reopen it.',
+      confirmLabel: 'Quit',
+      danger: true,
+    })
+    if (ok) {
       try {
         await window.ipcRenderer.invoke('quit-app')
       } catch (err) {
@@ -1066,10 +1133,10 @@ function updateDropZoneUI() {
     badgeEl.innerHTML = `${icon('shieldCheck', 11)}<span>Encrypted · AES-256-GCM</span>`
   } else {
     zone.classList.add('unpaired')
-    iconWrap.innerHTML = icon('sprout', 26)
+    iconWrap.innerHTML = icon('smartphone', 26)
     titleEl.textContent = 'Pair a device first'
     subEl.textContent = 'Connect your phone to send files'
-    badgeEl.innerHTML = `${icon('sprout', 11)}<span>No device paired</span>`
+    badgeEl.innerHTML = `${icon('smartphone', 11)}<span>No device paired</span>`
   }
 }
 

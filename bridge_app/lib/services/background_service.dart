@@ -136,11 +136,12 @@ class BackgroundService {
     service.invoke('send_camera_signal', {'payload': payload});
   }
 
-  // MIC PARKED — Phone as Microphone, revisit later:
-  // static void sendMicSignal(Map<String, dynamic> payload) {
-  //   final service = FlutterBackgroundService();
-  //   service.invoke('send_mic_signal', {'payload': payload});
-  // }
+  // MIC PARKED — Phone as Microphone UI hidden, revisit later.
+  // Kept so parked mic_service.dart still analyzes; not called from UI.
+  static void sendMicSignal(Map<String, dynamic> payload) {
+    final service = FlutterBackgroundService();
+    service.invoke('send_mic_signal', {'payload': payload});
+  }
 
   /// Sends a remote-input payload (trackpad mouse/scroll events) to Windows
   /// through the background socket.

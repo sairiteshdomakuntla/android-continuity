@@ -280,7 +280,7 @@ class _MicScreenState extends State<MicScreen> with WidgetsBindingObserver {
                                         ? 'Connecting to ${widget.pcName}…'
                                         : 'Starting microphone…'),
                                 style: const TextStyle(
-                                  fontFamily: 'Fraunces',
+                                  
                                   color: BridgeColors.ink,
                                   fontSize: 18,
                                   fontWeight: FontWeight.w600,
@@ -292,7 +292,7 @@ class _MicScreenState extends State<MicScreen> with WidgetsBindingObserver {
                               const Text(
                                 'Keep Bridge open while streaming. Speak near the phone — audio plays through your PC speakers.',
                                 style: TextStyle(
-                                  fontFamily: 'NunitoSans',
+                                  
                                   color: BridgeColors.inkSoft,
                                   fontSize: 13,
                                   height: 1.5,
@@ -376,7 +376,7 @@ class _MicScreenState extends State<MicScreen> with WidgetsBindingObserver {
                           child: Text(
                             text,
                             style: const TextStyle(
-                              fontFamily: 'NunitoSans',
+                              
                               color: BridgeColors.ink,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -407,7 +407,7 @@ class _MicScreenState extends State<MicScreen> with WidgetsBindingObserver {
                 child: const Text(
                   'LIVE',
                   style: TextStyle(
-                    fontFamily: 'NunitoSans',
+                    
                     color: BridgeColors.creamText,
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -454,7 +454,7 @@ class _MicScreenState extends State<MicScreen> with WidgetsBindingObserver {
         Text(
           'Starting microphone…',
           style: TextStyle(
-            fontFamily: 'NunitoSans',
+            
             color: BridgeColors.inkSoft,
             fontSize: 14,
           ),
@@ -498,7 +498,7 @@ class _MicScreenState extends State<MicScreen> with WidgetsBindingObserver {
               const Text(
                 'Microphone permission denied',
                 style: TextStyle(
-                  fontFamily: 'Fraunces',
+                  
                   color: BridgeColors.ink,
                   fontSize: 20,
                   fontWeight: FontWeight.w600,
@@ -508,7 +508,7 @@ class _MicScreenState extends State<MicScreen> with WidgetsBindingObserver {
               const Text(
                 'Please grant microphone access in Settings to use your phone as a mic.',
                 style: TextStyle(
-                  fontFamily: 'NunitoSans',
+                  
                   color: BridgeColors.inkSoft,
                   fontSize: 14,
                   height: 1.5,
@@ -578,7 +578,7 @@ class _ControlButton extends StatelessWidget {
           const SizedBox(height: 6),
           Text(label,
               style: const TextStyle(
-                fontFamily: 'NunitoSans',
+                
                 color: BridgeColors.inkSoft,
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
