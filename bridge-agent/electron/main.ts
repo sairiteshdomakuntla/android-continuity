@@ -16,6 +16,8 @@ import { NotificationService } from './services/NotificationService.js'
 import { DeviceService } from './services/DeviceService.js'
 import { RemoteInputService } from './services/RemoteInputService.js'
 import { DiscoveryService } from './services/DiscoveryService.js'
+import { TrayService, applyAutoLaunchChoice, readAutoLaunchOsState } from './services/TrayService.js'
+import { AppSettingsService } from './services/AppSettingsService.js'
 
 export { CameraSignalService }
 
@@ -38,6 +40,18 @@ export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
+
+// ── Single instance: a second launch (or a login launch while Bridge runs)
+// just restores the existing window instead of starting a rival socket server.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  console.log('[Main] Another Bridge instance is already running — quitting this one.')
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    TrayService.showMainWindow()
+  })
+}
 
 
 let win: BrowserWindow | null = null
@@ -70,7 +84,7 @@ async function generateNewPairing(forcedIp?: string): Promise<{
   }
 }
 
-function createWindow() {
+function createWindow(startHidden = false) {
   win = new BrowserWindow({
     width: 480,
     height: 750,
@@ -78,7 +92,8 @@ function createWindow() {
     minHeight: 650,
     title: 'Bridge Agent',
     frame: false, // custom title bar with Bridge gradient accent (see renderer .top-bar)
-    icon: path.join(process.env.VITE_PUBLIC, 'electron-vite.svg'),
+    icon: path.join(process.env.VITE_PUBLIC, 'tray', 'tray-connected.png'),
+    show: !startHidden, // login launches start minimized to tray
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
     },
@@ -88,6 +103,9 @@ function createWindow() {
     win?.webContents.send('main-process-message', (new Date).toLocaleString())
   })
 
+  // Closing the window hides to tray (see TrayService) — unless quitting.
+  if (win) TrayService.attachWindow(win)
+
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
@@ -96,6 +114,9 @@ function createWindow() {
 }
 
 app.on('window-all-closed', () => {
+  // With a live tray icon the app intentionally survives zero windows
+  // (e.g. camera worker closed while the main window hides in the tray).
+  if (TrayService.isRunning && !TrayService.isQuitting) return
   DiscoveryService.stop()
   if (process.platform !== 'darwin') {
     app.quit()
@@ -228,6 +249,28 @@ ipcMain.handle('remote-open', async () => {
   return { success: true }
 })
 
+// ── App settings (auto-launch) IPC ───────────────────────────────────────────
+
+ipcMain.handle('get-app-settings', () => {
+  return {
+    autoLaunch: readAutoLaunchOsState(),
+    autoLaunchConfigured: AppSettingsService.getAutoLaunch() !== null,
+  }
+})
+
+ipcMain.handle('set-auto-launch', (_event, enabled: boolean) => {
+  applyAutoLaunchChoice(!!enabled)
+  TrayService.refreshMenu()
+  return { autoLaunch: readAutoLaunchOsState() }
+})
+
+// ── App quit IPC (in-window Quit button → same graceful path as tray) ────────
+
+ipcMain.handle('quit-app', () => {
+  TrayService.requestQuit()
+  return { success: true }
+})
+
 app.whenReady().then(async () => {
   // Initialize Clipboard History
   ClipboardHistoryService.init()
@@ -302,8 +345,22 @@ app.whenReady().then(async () => {
   // 8. Start UDP LAN Discovery Service
   DiscoveryService.start()
 
-  // 9. Open window
-  createWindow()
+  // 9. Auto-launch: default ON for first-time setup, then respect the
+  // saved choice on every boot (the toggle + tray checkbox own it).
+  if (AppSettingsService.getAutoLaunch() === null) {
+    console.log('[Main] First run — enabling auto-launch by default')
+    applyAutoLaunchChoice(true)
+  }
+
+  // 10. Open window (minimized to tray on login launches via --hidden)
+  const startHidden = process.argv.includes('--hidden')
+  createWindow(startHidden)
+
+  // 11. System tray: close-to-tray, status icon, quick actions
+  TrayService.start(
+    () => win,
+    path.join(process.env.VITE_PUBLIC, 'tray'),
+  )
 })
 
 // ── File transfer IPC ─────────────────────────────────────────────────────────

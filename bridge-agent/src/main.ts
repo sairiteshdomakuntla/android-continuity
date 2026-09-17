@@ -74,6 +74,7 @@ const appEl = document.querySelector<HTMLDivElement>('#app')!
 let clipboardHistory: ClipboardHistoryItem[] = []
 let notificationsList: NotificationItem[] = []
 let batteryStatus: BatteryStatus | null = null
+let autoLaunch: boolean | null = null
 let replyDrafts: Record<string, string> = {}
 let replySubmitting: Record<string, boolean> = {}
 let lastStatus: StatusResponse | null = null
@@ -269,6 +270,7 @@ const ICONS: Record<string, string> = {
   wifi: '<path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/>',
   batteryMedium: '<rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/><line x1="6" x2="6" y1="11" y2="13"/><line x1="10" x2="10" y1="11" y2="13"/><line x1="14" x2="14" y1="11" y2="13"/>',
   batteryCharging: '<path d="M14.856 6H16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.935"/><path d="M5.14 18H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2.936"/><path d="m11 7-3 5h4l-3 5"/><line x1="22" x2="22" y1="11" y2="13"/>',
+  power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
   mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
   micOff: '<line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2h-2.83"/><path d="M5 5v9a7 7 0 0 0 12.71 4"/><path d="M9 9v2a3 3 0 0 0 5.12 2.12"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><line x1="12" x2="12" y1="19" y2="22"/>',
   square: '<rect width="18" height="18" x="3" y="3" rx="2"/>',
@@ -572,6 +574,28 @@ function render(state: StatusResponse) {
       </div>
       `
     }
+
+      <div class="panel settings-card">
+        <div class="panel-header">
+          <span class="panel-title">Settings</span>
+        </div>
+        <button class="settings-row" id="btn-auto-launch" title="Launch Bridge automatically when Windows starts">
+          <span class="settings-row-icon">${icon('power', 15)}</span>
+          <span class="settings-row-text">
+            <span class="settings-row-title">Launch at startup</span>
+            <span class="settings-row-sub">Start minimized in the system tray</span>
+          </span>
+          <span class="switch ${autoLaunch ? 'on' : ''}" aria-hidden="true"><span class="switch-knob"></span></span>
+        </button>
+        <button class="settings-row" id="btn-quit-app" title="Fully exit Bridge">
+          <span class="settings-row-icon danger">${icon('x', 15)}</span>
+          <span class="settings-row-text">
+            <span class="settings-row-title">Quit Bridge</span>
+            <span class="settings-row-sub">Fully exit — syncing stops until reopened</span>
+          </span>
+        </button>
+        <p class="settings-hint">Closing the window keeps Bridge running in the tray. Quit here or right-click the tray icon, then Quit Bridge.</p>
+      </div>
     </div>
 
     <div id="drop-overlay" class="drop-overlay ${isDragging ? 'active' : ''}">
@@ -696,6 +720,28 @@ function render(state: StatusResponse) {
 
   document.querySelector('#btn-clear-notifications')?.addEventListener('click', async () => {
     await window.ipcRenderer.invoke('clear-notifications')
+  })
+
+  document.querySelector('#btn-auto-launch')?.addEventListener('click', async () => {
+    try {
+      const res = (await window.ipcRenderer.invoke('set-auto-launch', !autoLaunch)) as { autoLaunch?: boolean }
+      if (res && typeof res.autoLaunch === 'boolean') {
+        autoLaunch = res.autoLaunch
+        if (lastStatus) render(lastStatus)
+      }
+    } catch (err) {
+      console.error('Failed to update auto-launch setting:', err)
+    }
+  })
+
+  document.querySelector('#btn-quit-app')?.addEventListener('click', async () => {
+    if (confirm('Quit Bridge completely? File sync and notifications will stop until you reopen it.')) {
+      try {
+        await window.ipcRenderer.invoke('quit-app')
+      } catch (err) {
+        console.error('Failed to quit Bridge:', err)
+      }
+    }
   })
 
   // Segmented tab switching (render-only, no IPC)
@@ -843,6 +889,13 @@ async function refresh() {
       }
     } catch { }
 
+    try {
+      const settings = (await window.ipcRenderer.invoke('get-app-settings')) as { autoLaunch?: boolean }
+      if (settings && typeof settings.autoLaunch === 'boolean') {
+        autoLaunch = settings.autoLaunch
+      }
+    } catch { }
+
     render(status)
   } catch (e) {
     console.error('Failed to get status:', e)
@@ -880,6 +933,15 @@ window.ipcRenderer.on('battery-updated', (_event, status: BatteryStatus | null) 
   batteryStatus = status && typeof status.level === 'number' ? status : null
   if (lastStatus) {
     render(lastStatus)
+  }
+})
+
+window.ipcRenderer.on('app-settings-changed', (_event, settings: { autoLaunch?: boolean }) => {
+  if (settings && typeof settings.autoLaunch === 'boolean') {
+    autoLaunch = settings.autoLaunch
+    if (lastStatus) {
+      render(lastStatus)
+    }
   }
 })
 

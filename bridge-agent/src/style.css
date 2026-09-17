@@ -869,6 +869,98 @@ body {
   background: rgba(188, 94, 54, 0.14);
 }
 
+/* ── Settings card ────────────────────────────────────────────── */
+.settings-card {
+  animation: panel-in 0.2s var(--ease-calm);
+}
+.settings-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-family: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
+  text-align: left;
+  transition: background 0.15s var(--ease-calm), border-color 0.15s var(--ease-calm);
+}
+.settings-row:hover {
+  background: var(--linen);
+  border-color: var(--sand);
+}
+.settings-row-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--sand-soft);
+  border: 1px solid var(--sand);
+  color: var(--clay-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.settings-row-icon.danger {
+  background: var(--clay-soft);
+  border-color: var(--sand);
+  color: var(--clay-ink);
+}
+.settings-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.settings-row-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.settings-row-sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+.settings-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 10px 2px 0;
+  line-height: 1.5;
+}
+/* Toggle switch — clay when on, sand when off */
+.switch {
+  width: 40px;
+  height: 22px;
+  border-radius: 9999px;
+  background: var(--sand);
+  border: 1px solid var(--sand);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.15s var(--ease-calm), border-color 0.15s var(--ease-calm);
+}
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: 0 1px 3px rgba(47, 38, 32, 0.25);
+  transition: left 0.15s var(--ease-calm);
+}
+.switch.on {
+  background: var(--clay);
+  border-color: var(--clay-deep);
+}
+.switch.on .switch-knob {
+  left: 20px;
+}
+
 /* MIC PARKED — Phone-as-Microphone styles, uncomment to restore.
 .mic-status {
   background: var(--card);
