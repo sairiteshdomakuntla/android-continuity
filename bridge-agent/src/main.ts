@@ -471,7 +471,7 @@ function render(state: StatusResponse) {
   appEl.innerHTML = `
     <div class="top-bar">
       <div class="top-bar-left">
-        <span class="brand-icon">${icon('link', 15)}</span>
+        <img class="brand-logo" src="/icon.png" alt="Bridge" />
         <span class="brand-name">Bridge</span>
         <span class="conn-pill ${hasDevices ? 'on' : ''}"><span class="dot"></span><span>${hasDevices ? 'Paired' : 'Setup'}</span></span>
       </div>
@@ -562,7 +562,7 @@ function render(state: StatusResponse) {
       ${!isPairing && !hasDevices
       ? `
       <div class="empty-state">
-        <span class="empty-illust">${icon('link', 26)}</span>
+        <img class="empty-logo" src="/icon.png" alt="Bridge" />
         <h2>Your phone, on your PC</h2>
         <p>Notifications, clipboard, files and camera — over your own Wi-Fi, encrypted end to end. Nothing leaves your network.</p>
         <button id="btn-start-pair" class="btn primary">${icon('plus', 15)}<span>Show pairing code</span></button>

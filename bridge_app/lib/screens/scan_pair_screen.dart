@@ -219,16 +219,14 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
               padding: const EdgeInsets.all(18),
               child: Row(
                 children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: BridgeColors.ink,
-                      borderRadius: BorderRadius.circular(15),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      width: 48,
+                      height: 48,
+                      fit: BoxFit.cover,
                     ),
-                    alignment: Alignment.center,
-                    child: const BridgeIcon('link',
-                        size: 23, color: Colors.white),
                   ),
                   const SizedBox(width: 13),
                   const Expanded(

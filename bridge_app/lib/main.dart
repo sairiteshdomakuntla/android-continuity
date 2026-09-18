@@ -714,15 +714,14 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
       titleSpacing: 16,
       title: Row(
         children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: titleColor,
-              borderRadius: BorderRadius.circular(12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(11),
+            child: Image.asset(
+              'assets/images/logo.png',
+              width: 36,
+              height: 36,
+              fit: BoxFit.cover,
             ),
-            alignment: Alignment.center,
-            child: BridgeIcon('link', size: 19, color: scheme.surface),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1033,8 +1032,23 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(height: 12),
-              const Center(
-                child: Text('Bridge for Android · v1.0', style: BridgeText.timestamp),
+              Center(
+                child: Column(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.asset(
+                        'assets/images/logo.png',
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text('Bridge — Android Continuity · v1.0.0',
+                        style: BridgeText.timestamp),
+                  ],
+                ),
               ),
             ],
           ),

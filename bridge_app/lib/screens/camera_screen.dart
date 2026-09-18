@@ -122,7 +122,6 @@ class _CameraScreenState extends State<CameraScreen>
           barrierDismissible: false,
           builder: (ctx) {
             final onSurface = Theme.of(ctx).colorScheme.onSurface;
-            final soft = Theme.of(ctx).colorScheme.onSurfaceVariant;
             return AlertDialog(
               title: Row(
                 children: [

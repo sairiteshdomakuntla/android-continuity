@@ -90,9 +90,9 @@ function createWindow(startHidden = false) {
     height: 750,
     minWidth: 420,
     minHeight: 650,
-    title: 'Bridge Agent',
+    title: 'Bridge — Android Continuity',
     frame: false, // custom title bar with Bridge gradient accent (see renderer .top-bar)
-    icon: path.join(process.env.VITE_PUBLIC, 'tray', 'tray-connected.png'),
+    icon: path.join(process.env.VITE_PUBLIC, 'icon.png'),
     show: !startHidden, // login launches start minimized to tray
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
