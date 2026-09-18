@@ -1,4 +1,4 @@
-package com.example.bridge_app
+package dev.sairitesh.bridge
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -32,7 +32,7 @@ object BridgeWidgetUpdater {    private const val TAG = "BridgeWidget"
     private const val MAX_ITEMS = 4
     private const val STALE_AFTER_MS = 15 * 60 * 1000L
 
-    const val ACTION_COPY = "com.example.bridge_app.WIDGET_COPY"
+    const val ACTION_COPY = "dev.sairitesh.bridge.WIDGET_COPY"
     const val EXTRA_ITEM_ID = "item_id"
 
     // Slate + blue flat values (matches Flutter BridgeColors + desktop tokens).

@@ -1,4 +1,4 @@
-package com.example.bridge_app
+package dev.sairitesh.bridge
 
 import android.app.Activity
 import android.content.ClipData

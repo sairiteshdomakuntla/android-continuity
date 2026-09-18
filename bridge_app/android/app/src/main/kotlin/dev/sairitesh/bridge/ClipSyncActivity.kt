@@ -1,4 +1,4 @@
-package com.example.bridge_app
+package dev.sairitesh.bridge
 
 import android.app.Activity
 import android.content.ClipboardManager
@@ -27,7 +27,7 @@ class ClipSyncActivity : Activity() {
 
     companion object {
         private const val TAG = "BridgeClipSync"
-        private const val ACTION_PUSH = "com.example.bridge_app.CLIP_SYNC_PUSH"
+        private const val ACTION_PUSH = "dev.sairitesh.bridge.CLIP_SYNC_PUSH"
         private const val EXTRA_TEXT = "text"
     }
 

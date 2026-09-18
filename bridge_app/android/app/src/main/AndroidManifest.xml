@@ -4,15 +4,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <!--
-      RECORD_AUDIO and MODIFY_AUDIO_SETTINGS are required by flutter_webrtc's internal
-      engine initialization on some Android versions. We do not use an audio track
-      (getUserMedia is called with audio: false), but failing to grant these at runtime
-      can cause silent WebRTC init failures on certain devices. Users will see a clear
-      explanation in the permission dialog before streaming starts.
-    -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <!--
       Screenshot sync: read the latest screenshot from MediaStore so it can be
       pasted on Windows. Android 13+ uses the granular media permission;
       older versions fall back to READ_EXTERNAL_STORAGE.
@@ -22,7 +13,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application
@@ -170,7 +160,7 @@
             android:name="com.example.bridge_core.StopRingReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.example.bridge_app.STOP_RING" />
+                <action android:name="dev.sairitesh.bridge.STOP_RING" />
             </intent-filter>
         </receiver>
 
@@ -181,7 +171,7 @@
             android:name="com.example.bridge_core.ClipSyncReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.example.bridge_app.CLIP_SYNC_PUSH" />
+                <action android:name="dev.sairitesh.bridge.CLIP_SYNC_PUSH" />
             </intent-filter>
         </receiver>
 

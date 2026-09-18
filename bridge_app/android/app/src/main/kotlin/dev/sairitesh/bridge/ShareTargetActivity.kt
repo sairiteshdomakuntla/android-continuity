@@ -1,4 +1,4 @@
-package com.example.bridge_app
+package dev.sairitesh.bridge
 
 import android.content.Intent
 import android.net.Uri

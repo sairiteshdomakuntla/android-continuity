@@ -1,4 +1,4 @@
-package com.example.bridge_app
+package dev.sairitesh.bridge
 
 import android.app.Activity
 import android.content.BroadcastReceiver
@@ -23,8 +23,8 @@ class RingActivity : Activity() {
     companion object {
         /** Must match RingManager.ACTION_RING_STOPPED_UI (kept as literals:
          * the app module cannot compile-depend on the bridge_core module). */
-        private const val ACTION_RING_STOPPED_UI = "com.example.bridge_app.RING_STOPPED_UI"
-        private const val ACTION_STOP_RING = "com.example.bridge_app.STOP_RING"
+        private const val ACTION_RING_STOPPED_UI = "dev.sairitesh.bridge.RING_STOPPED_UI"
+        private const val ACTION_STOP_RING = "dev.sairitesh.bridge.STOP_RING"
     }
 
     private var uiStopReceiver: BroadcastReceiver? = null
