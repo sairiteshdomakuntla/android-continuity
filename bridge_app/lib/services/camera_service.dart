@@ -82,27 +82,19 @@ class CameraService {
 
   // ── Permission handling ───────────────────────────────────────────────────────
 
-  /// Requests CAMERA and RECORD_AUDIO permissions.
+  /// Requests CAMERA permission.
   ///
-  /// Returns true if both are granted. Shows no UI — callers should show
+  /// Returns true if granted. Shows no UI — callers should show
   /// a rationale dialog before calling this if needed.
   Future<bool> requestPermissions() async {
-    final statuses = await [
-      Permission.camera,
-      Permission.microphone,
-    ].request();
-
-    final cameraOk = statuses[Permission.camera]?.isGranted ?? false;
-    final micOk = statuses[Permission.microphone]?.isGranted ?? false;
+    final status = await Permission.camera.request();
+    final cameraOk = status.isGranted;
 
     if (!cameraOk) {
       debugPrint('[CameraService] Camera permission denied');
     }
-    if (!micOk) {
-      debugPrint('[CameraService] Microphone permission denied (needed by WebRTC engine — audio track is not used)');
-    }
 
-    return cameraOk && micOk;
+    return cameraOk;
   }
 
   // ── Start / Stop ──────────────────────────────────────────────────────────────

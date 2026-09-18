@@ -144,15 +144,9 @@ class _CameraScreenState extends State<CameraScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Bridge needs access to your camera to stream video to your Windows PC.',
+                    'Bridge needs access to your camera to stream video to your Windows PC as a webcam.',
                     style: TextStyle(
                         fontSize: 14, height: 1.5, color: onSurface),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Microphone access is also requested — this is required internally by the WebRTC engine, even though Bridge streams video only and does not capture or transmit any audio.',
-                    style: TextStyle(
-                        fontSize: 13, color: soft, height: 1.45),
                   ),
                 ],
               ),

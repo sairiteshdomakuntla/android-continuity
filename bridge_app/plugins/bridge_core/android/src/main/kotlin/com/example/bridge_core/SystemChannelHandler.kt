@@ -210,8 +210,7 @@ class SystemChannelHandler(
             "requestIgnoreBatteryOptimizations" -> {
                 try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                            data = Uri.parse("package:${context.packageName}")
+                        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         }
                         context.startActivity(intent)
@@ -219,7 +218,8 @@ class SystemChannelHandler(
                     result.success(true)
                 } catch (e: Exception) {
                     try {
-                        val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                        val fallbackIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:${context.packageName}")
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         }
                         context.startActivity(fallbackIntent)
@@ -524,7 +524,7 @@ class SystemChannelHandler(
             val openSync = Intent().apply {
                 setClassName(
                     appContext.packageName,
-                    "com.example.bridge_app.ClipSyncActivity"
+                    "${appContext.packageName}.ClipSyncActivity"
                 )
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP

@@ -17,7 +17,7 @@ import android.content.Intent
 class ClipSyncReceiver : BroadcastReceiver() {
 
     companion object {
-        const val ACTION_PUSH = "com.example.bridge_app.CLIP_SYNC_PUSH"
+        const val ACTION_PUSH = "dev.sairitesh.bridge.CLIP_SYNC_PUSH"
         const val EXTRA_TEXT = "text"
     }
 

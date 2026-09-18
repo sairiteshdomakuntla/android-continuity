@@ -27,9 +27,9 @@ import androidx.core.app.NotificationCompat
  * [RING_DURATION_MS]. Previous alarm volume is restored on stop.
  */
 object RingManager {
-    const val ACTION_STOP_RING = "com.example.bridge_app.STOP_RING"
-    const val ACTION_RING_STOPPED_UI = "com.example.bridge_app.RING_STOPPED_UI"
-    const val RINGActivity_CLASS = "com.example.bridge_app.RingActivity"
+    const val ACTION_STOP_RING = "dev.sairitesh.bridge.STOP_RING"
+    const val ACTION_RING_STOPPED_UI = "dev.sairitesh.bridge.RING_STOPPED_UI"
+    const val RINGActivity_CLASS = "dev.sairitesh.bridge.RingActivity"
 
     private const val RING_CHANNEL_ID = "bridge_ring"
     private const val RING_NOTIFICATION_ID = 3301

@@ -21,7 +21,7 @@ class WidgetChannelHandler(private val context: Context) {
             "updateWidget" -> {
                 try {
                     val updaterClass =
-                        Class.forName("com.example.bridge_app.BridgeWidgetUpdater")
+                        Class.forName("dev.sairitesh.bridge.BridgeWidgetUpdater")
                     val updateAll = updaterClass.getMethod(
                         "updateAll",
                         android.content.Context::class.java,

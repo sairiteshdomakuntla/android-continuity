@@ -15,3 +15,7 @@ bridge_app/.flutter-plugins-dependencies
 .idea/
 .DS_Store
 *.log
+# Keystores and signing credentials
+**/key.properties
+**/*.keystore
+**/*.jks
