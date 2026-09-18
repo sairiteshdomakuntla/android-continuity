@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Lucide `bell`, Clay+Linen stroke treatment (1.75px rounded). -->
+<!-- Lucide `bell`, blue stroke treatment (1.75px rounded). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24"
-    android:tint="#8A3F22">
+    android:tint="#0B57D0">
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#8A3F22"
+        android:strokeColor="#0B57D0"
         android:strokeWidth="1.75"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#8A3F22"
+        android:strokeColor="#0B57D0"
         android:strokeWidth="1.75"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"

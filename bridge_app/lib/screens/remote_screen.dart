@@ -443,15 +443,16 @@ class _RemoteScreenState extends State<RemoteScreen> {
           GestureDetector(
             onTap: () => Navigator.of(context).maybePop(),
             child: Container(
-              width: 36,
-              height: 36,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
-                color: BridgeColors.card,
-                border: Border.all(color: BridgeColors.sand),
-                borderRadius: BorderRadius.circular(12),
+                color: BridgeColors.ink,
+                borderRadius: BorderRadius.circular(13),
               ),
-              child: const BridgeIcon('arrowLeft',
-                  color: BridgeColors.ink, size: 18),
+              child: const Center(
+                child: BridgeIcon('arrowLeft',
+                    color: Colors.white, size: 18),
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -459,32 +460,36 @@ class _RemoteScreenState extends State<RemoteScreen> {
             child: ValueListenableBuilder<bool>(
               valueListenable: SocketService.instance.connected,
               builder: (context, isConnected, _) {
-                return Row(
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: isConnected
-                            ? BridgeColors.sage
-                            : BridgeColors.disconnectedDot,
-                        shape: BoxShape.circle,
-                      ),
+                    Text(
+                      'Remote · $_host',
+                      style: BridgeText.notifTitle,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        isConnected
-                            ? 'Controlling $_host'
-                            : 'Not connected to $_host',
-                        style: const TextStyle(
-                          
-                          color: BridgeColors.ink,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: isConnected
+                                ? BridgeColors.sage
+                                : BridgeColors.disconnectedDot,
+                            shape: BoxShape.circle,
+                          ),
                         ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isConnected
+                              ? 'Live — moves your PC cursor'
+                              : 'Offline — reconnect to continue',
+                          style: BridgeText.caption,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
                   ],
                 );
@@ -531,31 +536,38 @@ class _RemoteScreenState extends State<RemoteScreen> {
                   curve: BridgeMotion.calm,
                   opacity: _dragging ? 0 : 1,
                   child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: BridgeColors.sageSoft,
-                            borderRadius: BorderRadius.circular(18),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: BridgeColors.ink,
+                              borderRadius: BorderRadius.circular(19),
+                            ),
+                            child: const BridgeIcon('hand',
+                                size: 25, color: Colors.white),
                           ),
-                          child: const BridgeIcon('hand',
-                              size: 24, color: BridgeColors.sageDeep),
-                        ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Tap to click • Drag to move\nTwo-finger drag to scroll\nTwo-finger tap = right click',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            
-                            fontSize: 13,
-                            height: 1.6,
-                            color: BridgeColors.inkSoft,
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Precision trackpad',
+                            style: BridgeText.panelTitle,
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Tap to click · Drag to move\nTwo-finger drag to scroll · Two-finger tap for right-click',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.6,
+                              color: BridgeColors.inkSoft,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

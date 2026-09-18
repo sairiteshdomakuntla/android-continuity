@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ringing overlay — Clay+Linen first-class screen, not a system dialog. -->
+<!-- Ringing overlay — calm system screen: slate background, ink tile, single CTA. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
-    android:background="#F4EEE3"
+    android:background="#F8FAFC"
     android:padding="32dp">
 
     <LinearLayout
@@ -25,31 +25,37 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
-        android:text="Bridge is ringing"
-        android:fontFamily="@font/fraunces"
-        android:textSize="26sp"
-        android:textColor="#2F2620" />
+        android:text="Ringing…"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:textColor="#0F172A" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="Your PC is looking for this phone"
-        android:fontFamily="@font/nunito_sans"
         android:textSize="14sp"
-        android:textColor="#6E6155" />
+        android:textColor="#475569" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Even on silent — tap stop when you find it"
+        android:textSize="12sp"
+        android:textColor="#94A3B8" />
 
     <Button
         android:id="@+id/btn_stop_ring"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="32dp"
-        android:minWidth="200dp"
-        android:text="Stop Ringing"
-        android:fontFamily="@font/nunito_sans"
+        android:minWidth="220dp"
+        android:text="Stop ringing"
         android:textSize="14sp"
         android:textAllCaps="false"
-        android:textColor="#FDF8EF"
+        android:textColor="#FFFFFF"
         android:background="@drawable/ring_stop_button"
         android:paddingStart="32dp"
         android:paddingEnd="32dp" />

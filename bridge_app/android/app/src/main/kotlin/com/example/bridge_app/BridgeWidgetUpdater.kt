@@ -17,9 +17,9 @@ import java.io.File
  * Builds and pushes the Bridge clipboard home-screen widget from the
  * snapshot file written by Dart ([WidgetSnapshotService]).
  *
- * Styling mirrors the Clay + Linen system with flat color values
- * (RemoteViews cannot use custom fonts or shadows): linen card,
- * clay accents, sand dividers, espresso text.
+ * Styling mirrors the Bridge system with flat color values
+ * (RemoteViews cannot use custom fonts or shadows): white card,
+ * blue accents, slate dividers and text.
  *
  * States:
  * - Missing/unpaired snapshot, `serviceAlive=false`, or snapshot older
@@ -35,13 +35,13 @@ object BridgeWidgetUpdater {    private const val TAG = "BridgeWidget"
     const val ACTION_COPY = "com.example.bridge_app.WIDGET_COPY"
     const val EXTRA_ITEM_ID = "item_id"
 
-    // Clay + Linen flat values (bridge-agent/src/style.css tokens).
-    private const val LINEN = 0xFFF4EEE3.toInt()
-    private const val CARD = 0xFFFCF9F3.toInt()
-    private const val INK = 0xFF2F2620.toInt()
-    private const val INK_SOFT = 0xFF6E6155.toInt()
-    private const val MUTED = 0xFFA29382.toInt()
-    private const val CLAY = 0xFFBC5E36.toInt()
+    // Slate + blue flat values (matches Flutter BridgeColors + desktop tokens).
+    private const val LINEN = 0xFFF8FAFC.toInt()
+    private const val CARD = 0xFFFFFFFF.toInt()
+    private const val INK = 0xFF0F172A.toInt()
+    private const val INK_SOFT = 0xFF475569.toInt()
+    private const val MUTED = 0xFF94A3B8.toInt()
+    private const val CLAY = 0xFF0B57D0.toInt()
 
     fun snapshotFile(context: Context): File {
         return File(context.applicationInfo.dataDir, "app_flutter/$SNAPSHOT_NAME")
@@ -139,8 +139,7 @@ object BridgeWidgetUpdater {    private const val TAG = "BridgeWidget"
 
             if (item.kind == "image" && item.imagePath != null) {
                 views.setTextViewText(slotIds.preview, "Image")
-                views.setTextViewText(
-                    slotIds.meta, "IMAGE · ${relativeTime(item.timestampMs)}")
+                views.setTextViewText(slotIds.meta, "IMAGE")
                 val bitmap = decodeThumb(item.imagePath)
                 if (bitmap != null) {
                     views.setViewVisibility(slotIds.thumb, View.VISIBLE)
@@ -151,8 +150,7 @@ object BridgeWidgetUpdater {    private const val TAG = "BridgeWidget"
             } else {
                 views.setTextViewText(slotIds.preview,
                     item.preview.ifEmpty { "…" })
-                views.setTextViewText(slotIds.meta,
-                    "${item.type.uppercase()} · ${relativeTime(item.timestampMs)}")
+                views.setTextViewText(slotIds.meta, item.type.uppercase())
                 views.setViewVisibility(slotIds.thumb, View.GONE)
             }
             views.setOnClickPendingIntent(slotIds.root, copyIntent(context, slot, item.id))
@@ -257,26 +255,14 @@ object BridgeWidgetUpdater {    private const val TAG = "BridgeWidget"
         }
     }
 
-    private fun relativeTime(ms: Long): String {
-        if (ms <= 0) return "recently"
-        val diff = (System.currentTimeMillis() - ms) / 1000
-        if (diff < 5) return "just now"
-        if (diff < 60) return "${diff}s ago"
-        val mins = diff / 60
-        if (mins < 60) return "${mins}m ago"
-        val hours = mins / 60
-        if (hours < 24) return "${hours}h ago"
-        return "${hours / 24}d ago"
-    }
-
     private fun typeColor(type: String): Int {
         return when (type.lowercase()) {
-            "url" -> 0xFF557B95.toInt()
-            "otp" -> 0xFFA9742B.toInt()
-            "email" -> 0xFF8C6D8C.toInt()
-            "phone" -> 0xFF57663F.toInt()
-            "image" -> 0xFF8A3F22.toInt()
-            else -> 0xFF6E6155.toInt()
+            "url" -> 0xFF0B57D0.toInt()
+            "otp" -> 0xFFB45309.toInt()
+            "email" -> 0xFF6D28D9.toInt()
+            "phone" -> 0xFF137333.toInt()
+            "image" -> 0xFF0842A0.toInt()
+            else -> 0xFF475569.toInt()
         }
     }
 

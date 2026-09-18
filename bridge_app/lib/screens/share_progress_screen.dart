@@ -187,13 +187,13 @@ class _BottomSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 36),
+      padding: const EdgeInsets.fromLTRB(22, 14, 22, 34),
       decoration: BoxDecoration(
         color: BridgeColors.card,
         border: Border.all(color: BridgeColors.sand),
         borderRadius:
-            const BorderRadius.vertical(top: Radius.circular(24)),
-        boxShadow: BridgeShadows.card,
+            const BorderRadius.vertical(top: Radius.circular(28)),
+        boxShadow: BridgeShadows.pop,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -202,65 +202,87 @@ class _BottomSheet extends StatelessWidget {
           // Handle pill
           Center(
             child: Container(
-              width: 40, height: 4,
+              width: 42, height: 5,
               decoration: BoxDecoration(
                 color: BridgeColors.sand,
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(3),
               ),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
           // Icon + title
           Row(
             children: [
               _phaseIcon(phase),
-              const SizedBox(width: 12),
+              const SizedBox(width: 13),
               Expanded(
-                child: Text(
-                  statusText,
-                  style: const TextStyle(
-                    
-                    color: BridgeColors.ink,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _titleFor(phase, totalCount),
+                      style: BridgeText.panelTitle,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      statusText,
+                      style: BridgeText.caption,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
           if (phase == _Phase.sending) ...[
             const SizedBox(height: 16),
-            if (currentFileName.isNotEmpty)
-              Text(
-                currentFileName,
-                style: const TextStyle(
-                  
-                  color: BridgeColors.inkSoft,
-                  fontSize: 13,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 13, vertical: 11),
+              decoration: BoxDecoration(
+                color: BridgeColors.sandSoft,
+                borderRadius: BorderRadius.circular(14),
               ),
-            const SizedBox(height: 8),
+              child: Row(
+                children: [
+                  const BridgeIcon('fileUp',
+                      size: 16, color: BridgeColors.inkSoft),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      currentFileName.isNotEmpty
+                          ? currentFileName
+                          : 'Sending…',
+                      style: BridgeText.notifTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Text(
+                    '${(overallFraction * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                    style: BridgeText.count,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
             ClipRRect(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(99),
               child: LinearProgressIndicator(
                 value: overallFraction,
                 backgroundColor: BridgeColors.sandSoft,
                 valueColor: const AlwaysStoppedAnimation<Color>(
-                    BridgeColors.clay),
-                minHeight: 6,
+                    BridgeColors.ink),
+                minHeight: 7,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 7),
             Text(
-              totalCount > 1 ? '$sentCount / $totalCount files' : '',
-              style: const TextStyle(
-                
-                color: BridgeColors.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
+              totalCount > 1
+                  ? 'File $sentCount of $totalCount · encrypted over local Wi-Fi'
+                  : 'Encrypted over local Wi-Fi',
+              style: BridgeText.timestamp,
             ),
           ],
           if (phase == _Phase.error) ...[
@@ -305,6 +327,21 @@ class _BottomSheet extends StatelessWidget {
     );
   }
 
+  String _titleFor(_Phase p, int total) {
+    switch (p) {
+      case _Phase.loading:
+        return 'Preparing share…';
+      case _Phase.connecting:
+        return 'Connecting to PC…';
+      case _Phase.sending:
+        return total > 1 ? 'Sending to your PC' : 'Sending to your PC';
+      case _Phase.done:
+        return 'Sent to your PC';
+      case _Phase.error:
+        return 'Couldn’t send';
+    }
+  }
+
   Widget _phaseIcon(_Phase p) {
     switch (p) {
       case _Phase.loading:
@@ -341,11 +378,11 @@ class _BottomSheet extends StatelessWidget {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: BridgeColors.claySoft,
+            color: BridgeColors.errorSoft,
             borderRadius: BorderRadius.circular(13),
           ),
-          child: BridgeIcon('x',
-              color: BridgeColors.clayInk, size: 20),
+          child: const BridgeIcon('x',
+              color: BridgeColors.error, size: 20),
         );
     }
   }

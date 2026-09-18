@@ -275,6 +275,7 @@ const ICONS: Record<string, string> = {
   micOff: '<line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2h-2.83"/><path d="M5 5v9a7 7 0 0 0 12.71 4"/><path d="M9 9v2a3 3 0 0 0 5.12 2.12"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><line x1="12" x2="12" y1="19" y2="22"/>',
   square: '<rect width="18" height="18" x="3" y="3" rx="2"/>',
   pencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
 }
 
 function icon(name: string, size = 14): string {
@@ -442,6 +443,7 @@ function renderClipboardItem(item: ClipboardHistoryItem): string {
       ? `<div class="clip-image-wrap"><img class="clip-image" src="${item.imageThumbnail}" alt="Clipboard image" /></div>`
       : `<div class="clip-content">${escapeHtml(item.text || '')}</div>`
     }
+      <div class="clip-foot">${icon('copy', 11)}<span>Click to copy on this PC</span></div>
     </div>
   `
 }
@@ -455,20 +457,23 @@ function render(state: StatusResponse) {
   const primary = hasDevices ? devices[0] : null
 
   const connTitle = !hasDevices
-    ? 'Not connected'
-    : (primary!.name || 'Android Device')
+    ? 'No phone linked'
+    : (primary!.name || 'Android phone')
+  const batteryChip = batteryStatus
+    ? `<span class="battery-badge ${batteryStatus.isCharging ? 'charging' : ''} ${!batteryStatus.isCharging && batteryStatus.level <= 20 ? 'low' : ''}">${icon('batteryMedium', 11)}<span>${batteryStatus.level}%${batteryStatus.isCharging ? ' · Charging' : ''}</span></span>`
+    : ''
   const connSub = !hasDevices
-    ? 'Pair your phone to start syncing'
+    ? 'Scan once — then everything is automatic'
     : batteryStatus
-      ? `Phone battery ${batteryStatus.level}%${batteryStatus.isCharging ? ' · Charging' : ''}`
+      ? `Last sync just now · AES-256 encrypted`
       : 'Encrypted link · AES-256-GCM'
 
   appEl.innerHTML = `
     <div class="top-bar">
       <div class="top-bar-left">
-        <span class="brand-icon">${icon('link', 14)}</span>
+        <span class="brand-icon">${icon('link', 15)}</span>
         <span class="brand-name">Bridge</span>
-        <span class="conn-pill ${hasDevices ? 'on' : ''}"><span class="dot"></span><span>${hasDevices ? 'Paired' : 'Not paired'}</span></span>
+        <span class="conn-pill ${hasDevices ? 'on' : ''}"><span class="dot"></span><span>${hasDevices ? 'Paired' : 'Setup'}</span></span>
       </div>
       <div class="top-bar-right">
         <button class="win-btn" id="btn-minimize" title="Minimize">${icon('minus', 14)}</button>
@@ -477,28 +482,37 @@ function render(state: StatusResponse) {
     </div>
 
     <div class="scroll">
-      <section class="conn-card">
+      <section class="conn-card ${hasDevices ? 'live' : 'idle'}">
         <div class="conn-top">
-          <span class="status-dot ${hasDevices ? 'connected' : ''}"></span>
-          <h1 class="conn-title">${escapeHtml(connTitle)}</h1>
-          ${hasDevices ? `<span class="enc-badge">${icon('shieldCheck', 11)}<span>Encrypted</span></span>` : ''}
+          <span class="device-avatar ${hasDevices ? '' : 'idle'}">${icon(hasDevices ? 'smartphone' : 'smartphone', 22)}</span>
+          <div class="conn-meta">
+            <div class="conn-title-row">
+              <span class="status-dot ${hasDevices ? 'connected' : ''}"></span>
+              <h1 class="conn-title">${escapeHtml(connTitle)}</h1>
+            </div>
+            <p class="conn-sub">${escapeHtml(connSub)}</p>
+          </div>
+          <div class="conn-badges">
+            ${hasDevices ? `<span class="enc-badge">${icon('shieldCheck', 11)}<span>AES-256</span></span>` : ''}
+            ${batteryChip}
+          </div>
         </div>
-        <p class="conn-sub">${escapeHtml(connSub)}</p>
-        <div class="conn-note">${icon('check', 13)}<span>Notifications, clipboard and files arrive automatically once paired.</span></div>
+        <div class="conn-note"><span class="note-icon">${icon('check', 13)}</span><span>${hasDevices ? 'Set and forget — notifications, clipboard and files arrive on their own. No need to keep this window open.' : 'Pairing takes under a minute. After that Bridge lives in the tray and syncs quietly.'}</span></div>
       </section>
 
       ${hasDevices
       ? `
+      <div class="eyebrow">Phone as a PC accessory</div>
       <div class="actions">
-        <button id="btn-camera" class="btn primary">${icon('camera', 15)}<span>Phone Camera</span></button>
-        <div class="actions-row">
-          <button id="btn-send-file" class="btn secondary">${icon('fileUp', 14)}<span>Send File</span></button>
-          <button id="btn-ring" class="btn secondary">${icon('bell', 14)}<span>Ring Phone</span></button>
-          <button id="btn-remote" class="btn secondary">${icon('mouse', 14)}<span>Remote</span></button>
+        <div class="actions-grid">
+          <button id="btn-camera" class="action-tile hero"><span class="tile-icon">${icon('camera', 18)}</span><span><p class="tile-title">Phone camera</p><p class="tile-sub">Use as webcam</p></span></button>
+          <button id="btn-remote" class="action-tile"><span class="tile-icon">${icon('mouse', 18)}</span><span><p class="tile-title">Remote</p><p class="tile-sub">Trackpad + keys</p></span></button>
+          <button id="btn-send-file" class="action-tile"><span class="tile-icon">${icon('fileUp', 18)}</span><span><p class="tile-title">Send file</p><p class="tile-sub">Drop or browse</p></span></button>
+          <button id="btn-ring" class="action-tile"><span class="tile-icon">${icon('bell', 18)}</span><span><p class="tile-title">Ring phone</p><p class="tile-sub">Find it fast</p></span></button>
           <!-- MIC PARKED: <button id="btn-mic" class="btn secondary" title="Use Phone as Mic">${icon('mic', 14)}<span>Phone Mic</span></button> -->
         </div>
-        <div class="actions-row">
-          <button id="btn-pair-new" class="btn ghost">${icon('plus', 14)}<span>Pair New</span></button>
+        <div class="actions-foot">
+          <button id="btn-pair-new" class="btn ghost">${icon('plus', 14)}<span>Pair new</span></button>
           <button id="btn-unpair" class="btn danger-ghost"><span>Unpair</span></button>
         </div>
       </div>
@@ -508,12 +522,17 @@ function render(state: StatusResponse) {
 
       ${isPairing && pairing
       ? `
+      <div class="eyebrow">Pair a new device</div>
       <div class="qr-card">
-        <span class="panel-title">Pair a new device</span>
+        <div class="qr-steps">
+          <div class="qr-step"><b>1 · Open</b><span>Bridge app on your phone</span></div>
+          <div class="qr-step"><b>2 · Scan</b><span>Tap the QR icon</span></div>
+          <div class="qr-step"><b>3 · Done</b><span>Under a minute</span></div>
+        </div>
         <div class="qr-img"><img src="${pairing.qrDataUrl}" alt="Pairing QR code" /></div>
         <div class="ip-pill">${icon('wifi', 13)}<span>${pairing.ip}:${pairing.port}</span></div>
         <div class="adapter-select">
-          <label for="ip-select">Network Interface</label>
+          <label for="ip-select">Network interface</label>
           <select id="ip-select">
             ${(pairing.candidates || [])
         .map(
@@ -533,7 +552,7 @@ function render(state: StatusResponse) {
           </div>
         </div>
         <p class="instruction">
-          On your phone, open <strong>Bridge</strong>, tap the <strong>QR icon</strong> and point the camera at this code. Takes under a minute.
+          On your phone, open <strong>Bridge</strong>, tap the <strong>QR icon</strong> and point the camera at this code.
         </p>
       </div>
       `
@@ -543,8 +562,9 @@ function render(state: StatusResponse) {
       ${!isPairing && !hasDevices
       ? `
       <div class="empty-state">
-        <span class="empty-icon">${icon('smartphone', 24)}</span>
-        <p>No phones connected yet.<br />Show a pairing code and scan it with the Bridge app.</p>
+        <span class="empty-illust">${icon('link', 26)}</span>
+        <h2>Your phone, on your PC</h2>
+        <p>Notifications, clipboard, files and camera — over your own Wi-Fi, encrypted end to end. Nothing leaves your network.</p>
         <button id="btn-start-pair" class="btn primary">${icon('plus', 15)}<span>Show pairing code</span></button>
       </div>
       `
@@ -596,19 +616,20 @@ function render(state: StatusResponse) {
         </button>
       </div>
 
+      <div class="eyebrow">Recent activity</div>
       ${activeTab === 'notifications'
       ? `
       <div class="panel">
         <div class="panel-header">
-          <span class="panel-title">Phone Notifications</span>
+          <span class="panel-title">Phone notifications</span>
           ${notificationsList.length > 0
-        ? `<button id="btn-clear-notifications" class="panel-btn">${icon('trash', 12)}<span>Clear</span></button>`
+        ? `<button id="btn-clear-notifications" class="panel-btn">${icon('trash', 12)}<span>Clear all</span></button>`
         : `<span class="panel-count">${notificationsList.length}/20</span>`
       }
         </div>
         <div class="panel-body" id="notifications-list">
           ${notificationsList.length === 0
-        ? `<div class="panel-empty"><span class="empty-icon">${icon('bell', 22)}</span><p>No notifications yet.<br />Incoming phone alerts will appear here.</p></div>`
+        ? `<div class="panel-empty"><span class="empty-icon">${icon('bell', 22)}</span><p><strong>All caught up.</strong><br />Phone alerts appear here the moment they arrive — and you can reply without touching your phone.</p></div>`
         : notificationsList.map(renderNotificationItem).join('')
       }
         </div>
@@ -617,12 +638,12 @@ function render(state: StatusResponse) {
       : `
       <div class="panel">
         <div class="panel-header">
-          <span class="panel-title">Clipboard History</span>
+          <span class="panel-title">Clipboard history</span>
           <span class="panel-count">${clipboardHistory.length}/20</span>
         </div>
         <div class="panel-body" id="history-list">
           ${clipboardHistory.length === 0
-        ? `<div class="panel-empty"><span class="empty-icon">${icon('clipboardList', 22)}</span><p>Nothing copied yet.<br />Copy text on either device to sync it.</p></div>`
+        ? `<div class="panel-empty"><span class="empty-icon">${icon('clipboardList', 22)}</span><p><strong>Nothing synced yet.</strong><br />Copy text or an image on either device — it lands here, ready to paste.</p></div>`
         : clipboardHistory.map(renderClipboardItem).join('')
       }
         </div>
@@ -630,15 +651,13 @@ function render(state: StatusResponse) {
       `
     }
 
+      <div class="eyebrow">Settings</div>
       <div class="panel settings-card">
-        <div class="panel-header">
-          <span class="panel-title">Settings</span>
-        </div>
         <button class="settings-row" id="btn-auto-launch" title="Launch Bridge automatically when Windows starts">
           <span class="settings-row-icon">${icon('power', 15)}</span>
           <span class="settings-row-text">
             <span class="settings-row-title">Launch at startup</span>
-            <span class="settings-row-sub">Start minimized in the system tray</span>
+            <span class="settings-row-sub">Start minimized in the tray — sync from boot</span>
           </span>
           <span class="switch ${autoLaunch ? 'on' : ''}" aria-hidden="true"><span class="switch-knob"></span></span>
         </button>
@@ -649,8 +668,9 @@ function render(state: StatusResponse) {
             <span class="settings-row-sub">Fully exit — syncing stops until reopened</span>
           </span>
         </button>
-        <p class="settings-hint">Closing the window keeps Bridge running in the tray. Quit here or right-click the tray icon, then Quit Bridge.</p>
+        <p class="settings-hint">Closing this window keeps Bridge in the tray so sync never stops. Tip: drag any file onto this window to send it to your phone.</p>
       </div>
+      <div class="app-foot">Bridge · local-only · AES-256-GCM encrypted</div>
     </div>
 
     <div id="drop-overlay" class="drop-overlay ${isDragging ? 'active' : ''}">

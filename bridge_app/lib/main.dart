@@ -158,6 +158,8 @@ class BridgeApp extends StatelessWidget {
       title: 'Bridge',
       debugShowCheckedModeBanner: false,
       theme: BridgeTheme.light(),
+      darkTheme: BridgeTheme.dark(),
+      themeMode: ThemeMode.system,
       home: isPaired ? const BridgeHome() : const ScanPairScreen(),
     );
   }
@@ -699,40 +701,91 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
   PreferredSizeWidget _buildAppBar() {
     final titles = ['Bridge', 'Clipboard', 'Notifications', 'Settings'];
     final subtitles = [
-      _lastKnownHost ?? '',
+      _lastKnownHost != null ? 'This phone · ${_lastKnownHost!}' : 'Set up once, runs itself',
       'Tap any item to copy it back',
       'Phone alerts, mirrored to PC',
       'Devices, permissions & about',
     ];
+    // Theme-aware: hardcoded ink would vanish on the dark app bar.
+    final scheme = Theme.of(context).colorScheme;
+    final titleColor = scheme.onSurface;
+    final subtitleColor = scheme.onSurfaceVariant;
     return AppBar(
       titleSpacing: 16,
       title: Row(
         children: [
           Container(
-            width: 36,
-            height: 36,
+            width: 38,
+            height: 38,
             decoration: BoxDecoration(
-              color: BridgeColors.clay,
-              borderRadius: BorderRadius.circular(11),
+              color: titleColor,
+              borderRadius: BorderRadius.circular(12),
             ),
             alignment: Alignment.center,
-            child: const BridgeIcon('link', size: 19, color: Colors.white),
+            child: BridgeIcon('link', size: 19, color: scheme.surface),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(titles[_tabIndex], style: BridgeText.brand),
-                if (subtitles[_tabIndex].isNotEmpty)
-                  Text(
-                    _tabIndex == 0 && _lastKnownHost != null
-                        ? 'Connected to ${_lastKnownHost!}'
-                        : subtitles[_tabIndex],
-                    style: BridgeText.caption,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                Row(
+                  children: [
+                    Text(titles[_tabIndex],
+                        style: BridgeText.brand
+                            .copyWith(color: titleColor)),
+                    const SizedBox(width: 8),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: SocketService.instance.connected,
+                      builder: (context, isConnected, _) {
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: isConnected
+                                ? BridgeColors.sageSoft
+                                : BridgeColors.sandSoft,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: isConnected
+                                      ? BridgeColors.sage
+                                      : BridgeColors.muted,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                isConnected ? 'LIVE' : 'IDLE',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.8,
+                                  color: isConnected
+                                      ? BridgeColors.sageDeep
+                                      : BridgeColors.inkSoft,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                Text(
+                  subtitles[_tabIndex],
+                  style: BridgeText.caption
+                      .copyWith(color: subtitleColor),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
@@ -816,12 +869,12 @@ class _BridgeHomeState extends State<BridgeHome> with WidgetsBindingObserver {
                     await _refreshSetupState();
                   },
                 ),
-                const SizedBox(height: 12),
-                _SectionHeader(
+                const SizedBox(height: 16),
+                const _SectionHeader(
                   title: 'Control your PC',
-                  subtitle: 'Needs the app open',
+                  subtitle: 'These need the app open — everything else is automatic',
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 _QuickActionsGrid(
                   isConnected: isConnected,
                   onWebcam: () => _openWebcam(isConnected),
@@ -1015,35 +1068,72 @@ class _ConnectionCard extends StatelessWidget {
     final host = serverUrl.replaceFirst(RegExp(r'https?://'), '');
     final Color dot = connected
         ? BridgeColors.sage
-        : (isReconnecting ? BridgeColors.warning : BridgeColors.disconnectedDot);
+        : (isReconnecting
+            ? BridgeColors.warning
+            : BridgeColors.disconnectedDot);
     final String title = connected
-        ? 'Connected'
-        : (isReconnecting ? 'Connecting…' : 'Not connected');
+        ? 'PC linked'
+        : (isReconnecting ? 'Reconnecting…' : 'Waiting for PC');
     final String subtitle = connected
         ? host
-        : (reconnectMessage ?? (host.isNotEmpty ? 'Last PC: $host' : 'Pair once — stays connected'));
+        : (reconnectMessage ??
+            (host.isNotEmpty
+                ? 'Last seen at $host'
+                : 'Pair once — stays connected'));
 
     return BridgeCard(
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _StatusDot(color: dot, pulsing: isReconnecting && !connected),
-              const SizedBox(width: 10),
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: connected
+                      ? BridgeColors.ink
+                      : BridgeColors.sandSoft,
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                alignment: Alignment.center,
+                child: BridgeIcon(
+                  'monitor',
+                  size: 22,
+                  color: connected ? Colors.white : BridgeColors.inkSoft,
+                ),
+              ),
+              const SizedBox(width: 13),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: BridgeText.panelTitle),
-                    const SizedBox(height: 1),
-                    Text(subtitle, style: BridgeText.caption, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Row(
+                      children: [
+                        _StatusDot(
+                            color: dot, pulsing: isReconnecting && !connected),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(title,
+                              style: BridgeText.panelTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(subtitle,
+                        style: BridgeText.caption,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
                   ],
                 ),
               ),
               if (connected)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: BridgeColors.sageSoft,
                     borderRadius: BorderRadius.circular(999),
@@ -1051,47 +1141,64 @@ class _ConnectionCard extends StatelessWidget {
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      BridgeIcon('shieldCheck', size: 12, color: BridgeColors.sageDeep),
+                      BridgeIcon('shieldCheck',
+                          size: 12, color: BridgeColors.sageDeep),
                       SizedBox(width: 5),
-                      Text('ENCRYPTED', style: BridgeText.badgeCaps),
+                      Text('AES-256', style: BridgeText.badgeCaps),
                     ],
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
             decoration: BoxDecoration(
-              color: BridgeColors.linen,
-              borderRadius: BorderRadius.circular(12),
+              color: BridgeColors.sandSoft,
+              borderRadius: BorderRadius.circular(14),
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const BridgeIcon('check', size: 14, color: BridgeColors.sageDeep),
-                const SizedBox(width: 8),
+                Container(
+                  width: 26,
+                  height: 26,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const BridgeIcon('check',
+                      size: 13, color: BridgeColors.sageDeep),
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     connected
-                        ? 'Background sync is on — copy on your phone, then tap Sync Now on the Bridge notification.'
-                        : 'Bridge reconnects automatically when your PC is back on Wi-Fi.',
-                    style: BridgeText.caption,
+                        ? 'Set and forget — copy on your phone, tap Sync Now on the Bridge notification. No need to open this app.'
+                        : 'Bridge reconnects on its own when your PC is back on the same Wi-Fi. Leave it alone.',
+                    style: BridgeText.caption.copyWith(height: 1.5),
                   ),
                 ),
               ],
             ),
           ),
           if (!connected) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 13),
             Row(
               children: [
                 Expanded(
                   child: FilledButton.icon(
                     onPressed: isReconnecting ? null : onReconnect,
                     icon: isReconnecting
-                        ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
                         : const BridgeIcon('refreshCw', size: 15),
-                    label: Text(isReconnecting ? 'Connecting…' : 'Reconnect'),
+                    label: Text(
+                        isReconnecting ? 'Connecting…' : 'Reconnect now'),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1356,12 +1463,12 @@ class _QuickActionsGrid extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 10,
       crossAxisSpacing: 10,
-      childAspectRatio: 1.35,
+      childAspectRatio: 1.28,
       children: [
         _ActionTile(
           icon: 'camera',
           title: 'Webcam',
-          subtitle: 'Use phone camera',
+          subtitle: 'Phone as camera',
           primary: true,
           enabled: isConnected,
           onTap: onWebcam,
@@ -1369,20 +1476,20 @@ class _QuickActionsGrid extends StatelessWidget {
         _ActionTile(
           icon: 'mouse',
           title: 'Remote',
-          subtitle: 'Trackpad + keys',
+          subtitle: 'Trackpad · keys',
           enabled: isConnected,
           onTap: onRemote,
         ),
         _ActionTile(
           icon: 'fileUp',
           title: 'Send file',
-          subtitle: 'To your PC',
+          subtitle: 'Share to PC',
           onTap: onSendFile,
         ),
         _ActionTile(
           icon: 'refreshCw',
-          title: 'Sync clipboard',
-          subtitle: 'Push latest copy',
+          title: 'Sync now',
+          subtitle: 'Push clipboard',
           onTap: onSync,
         ),
       ],
@@ -1409,51 +1516,93 @@ class _ActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double opacity = enabled ? 1 : 0.55;
+    final double opacity = enabled ? 1 : 0.5;
     return Opacity(
       opacity: opacity,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: primary ? BridgeColors.clay : BridgeColors.card,
-            border: Border.all(color: primary ? BridgeColors.clay : BridgeColors.sand),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: BridgeShadows.card,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: primary ? Colors.white.withAlpha(38) : BridgeColors.claySoft,
-                  borderRadius: BorderRadius.circular(11),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Ink(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              color: primary ? BridgeColors.ink : BridgeColors.card,
+              border: Border.all(
+                  color: primary ? BridgeColors.ink : BridgeColors.sand),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: BridgeShadows.card,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: primary
+                            ? Colors.white.withAlpha(26)
+                            : BridgeColors.sandSoft,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: BridgeIcon(icon,
+                          size: 19,
+                          color: primary
+                              ? Colors.white
+                              : BridgeColors.ink),
+                    ),
+                    const Spacer(),
+                    if (!enabled)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: primary
+                              ? Colors.white.withAlpha(26)
+                              : BridgeColors.sandSoft,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'OFFLINE',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.7,
+                            color: primary
+                                ? Colors.white.withAlpha(220)
+                                : BridgeColors.muted,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-                alignment: Alignment.center,
-                child: BridgeIcon(icon, size: 18, color: primary ? Colors.white : BridgeColors.clay),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: BridgeText.notifTitle.copyWith(
-                      color: primary ? Colors.white : BridgeColors.ink,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: BridgeText.notifTitle.copyWith(
+                        color:
+                            primary ? Colors.white : BridgeColors.ink,
+                      ),
                     ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: BridgeText.caption.copyWith(
-                      color: primary ? Colors.white.withAlpha(210) : BridgeColors.inkSoft,
+                    const SizedBox(height: 1),
+                    Text(
+                      subtitle,
+                      style: BridgeText.caption.copyWith(
+                        color: primary
+                            ? Colors.white.withAlpha(190)
+                            : BridgeColors.inkSoft,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1467,21 +1616,63 @@ class _HowItWorksCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BridgeCard(
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
-          Text('No need to keep opening this app', style: BridgeText.panelTitle),
-          SizedBox(height: 4),
-          Text(
-            'After this one-time setup, Bridge works quietly in the background.',
-            style: BridgeText.caption,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: BridgeColors.sageSoft,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                alignment: Alignment.center,
+                child: const BridgeIcon('check',
+                    size: 19, color: BridgeColors.sageDeep),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Runs without opening the app',
+                        style: BridgeText.panelTitle),
+                    SizedBox(height: 2),
+                    Text(
+                      'One-time setup. From here Bridge lives in the background.',
+                      style: BridgeText.caption,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          SizedBox(height: 12),
-          _HowRow(icon: 'clipboardList', text: 'Copy on your phone — tap Sync Now on the Bridge notification to push it to your PC.'),
-          SizedBox(height: 8),
-          _HowRow(icon: 'bell', text: 'Phone notifications appear on your PC automatically.'),
-          SizedBox(height: 8),
-          _HowRow(icon: 'fileUp', text: 'Share from any app to send files straight to your PC.'),
+          const SizedBox(height: 14),
+          const _HowRow(
+              icon: 'clipboardList',
+              title: 'Clipboard via notification',
+              text:
+                  'Copy anywhere, then tap Sync Now on the Bridge notification — no need to open the app.'),
+          SizedBox(height: 10),
+          const _HowRow(
+              icon: 'bell',
+              title: 'Notifications, automatically',
+              text: 'Phone alerts land on your PC the moment they arrive.'),
+          SizedBox(height: 10),
+          const _HowRow(
+              icon: 'fileUp',
+              title: 'Files from Share sheet',
+              text:
+                  'In any app tap Share → Bridge to send straight to your PC.'),
+          SizedBox(height: 10),
+          const _HowRow(
+              icon: 'smartphone',
+              title: 'Clipboard widget',
+              text:
+                  'Add the Bridge widget to your home screen for one-tap copy of recent clips.'),
         ],
       ),
     );
@@ -1490,8 +1681,10 @@ class _HowItWorksCard extends StatelessWidget {
 
 class _HowRow extends StatelessWidget {
   final String icon;
+  final String title;
   final String text;
-  const _HowRow({required this.icon, required this.text});
+  const _HowRow(
+      {required this.icon, required this.title, required this.text});
 
   @override
   Widget build(BuildContext context) {
@@ -1499,17 +1692,27 @@ class _HowRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 28,
-          height: 28,
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
-            color: BridgeColors.linen,
-            borderRadius: BorderRadius.circular(9),
+            color: BridgeColors.sandSoft,
+            borderRadius: BorderRadius.circular(10),
           ),
           alignment: Alignment.center,
-          child: BridgeIcon(icon, size: 14, color: BridgeColors.inkSoft),
+          child:
+              BridgeIcon(icon, size: 15, color: BridgeColors.ink),
         ),
-        const SizedBox(width: 10),
-        Expanded(child: Text(text, style: BridgeText.bodySoft)),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: BridgeText.notifTitle),
+              const SizedBox(height: 1),
+              Text(text, style: BridgeText.bodySoft),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1524,15 +1727,18 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: BridgeText.panelTitle),
-        if (subtitle != null) ...[
-          const SizedBox(height: 2),
-          Text(subtitle!, style: BridgeText.caption),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title.toUpperCase(), style: BridgeText.eyebrow),
+          if (subtitle != null) ...[
+            const SizedBox(height: 3),
+            Text(subtitle!, style: BridgeText.caption),
+          ],
         ],
-      ],
+      ),
     );
   }
 }
@@ -1763,7 +1969,7 @@ class _ClipboardTabState extends State<_ClipboardTab> {
               child: TextField(
                 onChanged: (v) => setState(() => _query = v),
                 decoration: InputDecoration(
-                  hintText: 'Search clipboard',
+                  hintText: 'Search clips, links, codes…',
                   prefixIcon: const Padding(
                     padding: EdgeInsets.all(12),
                     child: BridgeIcon('fileText', size: 16),
@@ -1797,20 +2003,36 @@ class _ClipboardTabState extends State<_ClipboardTab> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  children: [
-                                    BridgeIcon(_typeIcon(item.contentType), size: 13, color: typeColor),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      item.contentType.toUpperCase(),
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.6,
-                                        color: typeColor,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: typeColor.withAlpha(22),
+                                    borderRadius:
+                                        BorderRadius.circular(999),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      BridgeIcon(
+                                          _typeIcon(
+                                              item.contentType),
+                                          size: 12,
+                                          color: typeColor),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        item.contentType
+                                            .toUpperCase(),
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight:
+                                              FontWeight.w800,
+                                          letterSpacing: 0.7,
+                                          color: typeColor,
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                                 const SizedBox(height: 8),
                                 if (item.kind == 'image' && item.imagePath != null && File(item.imagePath!).existsSync())
@@ -2053,32 +2275,36 @@ class _EmptyState extends StatelessWidget {
   final String icon;
   final String title;
   final String message;
-  const _EmptyState({required this.icon, required this.title, required this.message});
+  const _EmptyState(
+      {required this.icon, required this.title, required this.message});
 
   @override
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.fromLTRB(36, 28, 36, 28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 60,
-              height: 60,
+              width: 64,
+              height: 64,
               decoration: BoxDecoration(
-                color: BridgeColors.card,
-                border: Border.all(color: BridgeColors.sand),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: BridgeShadows.card,
+                color: BridgeColors.sandSoft,
+                borderRadius: BorderRadius.circular(22),
               ),
               alignment: Alignment.center,
-              child: BridgeIcon(icon, size: 26, color: BridgeColors.inkSoft),
+              child:
+                  BridgeIcon(icon, size: 27, color: BridgeColors.inkSoft),
             ),
-            const SizedBox(height: 14),
-            Text(title, style: BridgeText.panelTitle, textAlign: TextAlign.center),
-            const SizedBox(height: 4),
-            Text(message, style: BridgeText.caption, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            Text(title,
+                style: BridgeText.panelTitle,
+                textAlign: TextAlign.center),
+            const SizedBox(height: 5),
+            Text(message,
+                style: BridgeText.bodySoft,
+                textAlign: TextAlign.center),
           ],
         ),
       ),

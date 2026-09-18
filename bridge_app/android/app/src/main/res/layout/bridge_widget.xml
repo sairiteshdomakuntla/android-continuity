@@ -28,7 +28,7 @@
             android:text="Bridge"
             android:textSize="14sp"
             android:textStyle="bold"
-            android:textColor="#2F2620" />
+            android:textColor="#0F172A" />
 
         <TextView
             android:id="@+id/widget_count"
@@ -42,7 +42,7 @@
             android:text="0"
             android:textSize="11sp"
             android:textStyle="bold"
-            android:textColor="#6E6155" />
+            android:textColor="#475569" />
     </LinearLayout>
 
     <!-- Items -->
@@ -66,7 +66,7 @@
             <ImageView                 android:id="@+id/widget_bar_0"
                 android:layout_width="3dp"
                 android:layout_height="match_parent"
-                android:background="#6E6155" />
+                android:background="#475569" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -80,7 +80,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textSize="13sp"
-                    android:textColor="#2F2620"
+                    android:textColor="#0F172A"
                     android:maxLines="2"
                     android:ellipsize="end" />
 
@@ -90,7 +90,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
                     android:textSize="11sp"
-                    android:textColor="#A29382" />
+                    android:textColor="#94A3B8" />
             </LinearLayout>
 
             <ImageView
@@ -116,7 +116,7 @@
             <ImageView                 android:id="@+id/widget_bar_1"
                 android:layout_width="3dp"
                 android:layout_height="match_parent"
-                android:background="#6E6155" />
+                android:background="#475569" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -130,7 +130,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textSize="13sp"
-                    android:textColor="#2F2620"
+                    android:textColor="#0F172A"
                     android:maxLines="2"
                     android:ellipsize="end" />
 
@@ -140,7 +140,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
                     android:textSize="11sp"
-                    android:textColor="#A29382" />
+                    android:textColor="#94A3B8" />
             </LinearLayout>
 
             <ImageView
@@ -166,7 +166,7 @@
             <ImageView                 android:id="@+id/widget_bar_2"
                 android:layout_width="3dp"
                 android:layout_height="match_parent"
-                android:background="#6E6155" />
+                android:background="#475569" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -180,7 +180,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textSize="13sp"
-                    android:textColor="#2F2620"
+                    android:textColor="#0F172A"
                     android:maxLines="2"
                     android:ellipsize="end" />
 
@@ -190,7 +190,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
                     android:textSize="11sp"
-                    android:textColor="#A29382" />
+                    android:textColor="#94A3B8" />
             </LinearLayout>
 
             <ImageView
@@ -216,7 +216,7 @@
             <ImageView                 android:id="@+id/widget_bar_3"
                 android:layout_width="3dp"
                 android:layout_height="match_parent"
-                android:background="#6E6155" />
+                android:background="#475569" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -230,7 +230,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textSize="13sp"
-                    android:textColor="#2F2620"
+                    android:textColor="#0F172A"
                     android:maxLines="2"
                     android:ellipsize="end" />
 
@@ -240,7 +240,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
                     android:textSize="11sp"
-                    android:textColor="#A29382" />
+                    android:textColor="#94A3B8" />
             </LinearLayout>
 
             <ImageView
@@ -271,7 +271,7 @@
             android:text="Nothing copied yet"
             android:textSize="13sp"
             android:textStyle="bold"
-            android:textColor="#2F2620" />
+            android:textColor="#0F172A" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -279,7 +279,7 @@
             android:layout_marginTop="2dp"
             android:text="Copy on either device to sync it"
             android:textSize="11sp"
-            android:textColor="#A29382" />
+            android:textColor="#94A3B8" />
     </LinearLayout>
 
     <!-- Reconnect state -->
@@ -300,7 +300,7 @@
             android:text="Open Bridge to reconnect"
             android:textSize="13sp"
             android:textStyle="bold"
-            android:textColor="#8A3F22" />
+            android:textColor="#0842A0" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -308,7 +308,7 @@
             android:layout_marginTop="2dp"
             android:text="Background service isn't running"
             android:textSize="11sp"
-            android:textColor="#A29382" />
+            android:textColor="#94A3B8" />
     </LinearLayout>
 
     <!-- Footer -->
@@ -322,5 +322,5 @@
         android:textSize="11sp"
         android:textStyle="bold"
         android:letterSpacing="0.1"
-        android:textColor="#BC5E36" />
+        android:textColor="#0B57D0" />
 </LinearLayout>

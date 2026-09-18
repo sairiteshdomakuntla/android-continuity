@@ -200,7 +200,7 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
       backgroundColor: BridgeColors.linen,
       appBar: AppBar(
         automaticallyImplyLeading: canPop,
-        title: const Text('Connect to your PC'),
+        title: const Text('Pair with your PC'),
         actions: [
           IconButton(
             icon: const BridgeIcon('keyboard', size: 20),
@@ -214,18 +214,53 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ── Hero ──
+            BridgeCard(
+              padding: const EdgeInsets.all(18),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: BridgeColors.ink,
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    alignment: Alignment.center,
+                    child: const BridgeIcon('link',
+                        size: 23, color: Colors.white),
+                  ),
+                  const SizedBox(width: 13),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Scan once — then forget it',
+                            style: BridgeText.panelTitle),
+                        SizedBox(height: 3),
+                        Text(
+                          'Under a minute. After this, everything runs in the background — you rarely open this app again.',
+                          style: BridgeText.caption,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
             // ── How pairing works ──
             const BridgeCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Scan once — done', style: BridgeText.panelTitle),
-                  SizedBox(height: 4),
-                  Text(
-                    'Pairing takes under a minute. After that Bridge stays connected automatically.',
-                    style: BridgeText.caption,
-                  ),
-                  SizedBox(height: 12),
+                  Text('How it works',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.0,
+                          color: BridgeColors.muted)),
+                  SizedBox(height: 10),
                   _StepRow(n: '1', text: 'Open Bridge on your computer'),
                   SizedBox(height: 8),
                   _StepRow(n: '2', text: 'Choose “Pair new” to show the code'),
@@ -330,17 +365,26 @@ class _ScanPairScreenState extends State<ScanPairScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const BridgeIcon('shieldCheck', size: 15, color: BridgeColors.sageDeep),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'Encrypted with AES-256. Your devices talk over local Wi-Fi only.',
-                          style: BridgeText.caption,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: BridgeColors.sageSoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Row(
+                      children: [
+                        BridgeIcon('shieldCheck',
+                            size: 15, color: BridgeColors.sageDeep),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Private by design — AES-256, local Wi-Fi only. Nothing leaves your network.',
+                            style: BridgeText.caption,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),

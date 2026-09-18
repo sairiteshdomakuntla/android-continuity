@@ -23,5 +23,5 @@
         android:text="Bridge — tap to open"
         android:textSize="14sp"
         android:textStyle="bold"
-        android:textColor="#2F2620" />
+        android:textColor="#0F172A" />
 </LinearLayout>

@@ -6,25 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bridge — Phone Camera</title>
   <style>
-    @font-face {
-      font-family: 'Fraunces';
-      font-style: normal;
-      font-weight: 600;
-      src: url('/assets/fonts/fraunces-semibold.woff2') format('woff2');
-    }
-    @font-face {
-      font-family: 'Nunito Sans';
-      font-style: normal;
-      font-weight: 400;
-      src: url('/assets/fonts/nunito-sans-regular.woff2') format('woff2');
-    }
-    @font-face {
-      font-family: 'Nunito Sans';
-      font-style: normal;
-      font-weight: 700;
-      src: url('/assets/fonts/nunito-sans-bold.woff2') format('woff2');
-    }
-
     * {
       box-sizing: border-box;
       margin: 0;
@@ -32,21 +13,18 @@
     }
 
     :root {
-      font-family: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
-      color: #2f2620;
-      background: #f4eee3;
-      --linen: #f4eee3;
-      --card: #fcf9f3;
-      --sand: #e5d9c4;
-      --clay: #bc5e36;
-      --clay-deep: #9c4a28;
-      --clay-soft: #f3e2d3;
-      --clay-ink: #8a3f22;
-      --sage: #6f7f5c;
-      --sage-deep: #57663f;
-      --ink: #2f2620;
-      --ink-soft: #6e6155;
-      --muted: #a29382;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      color: #e6edf7;
+      background: #0b0f14;
+      --bg: #0b0f14;
+      --panel: #11161d;
+      --line: #1e293b;
+      --ink: #e6edf7;
+      --ink-soft: #9db0c7;
+      --muted: #64748b;
+      --accent: #0b57d0;
+      --rec: #dc2626;
+      --live: #22c55e;
     }
 
     body {
@@ -54,70 +32,63 @@
       flex-direction: column;
       height: 100vh;
       overflow: hidden;
-      background: var(--linen);
+      background: var(--bg);
       user-select: none;
-      font-family: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
       color: var(--ink);
     }
 
-    /* ── Custom minimal title bar ─────────────────────────────── */
+    /* ── Minimal dark title bar ─────────────────────────────── */
     .top-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 44px;
-      padding: 0 10px 0 16px;
-      background: var(--linen);
+      height: 48px;
+      padding: 0 10px 0 14px;
+      background: rgba(17, 22, 29, 0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--line);
       -webkit-app-region: drag;
       flex-shrink: 0;
       position: relative;
       gap: 8px;
-    }
-    .top-bar::after {
-      content: '';
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: var(--clay);
-      opacity: 0.55;
+      z-index: 5;
     }
     .top-bar-left {
       display: flex;
       align-items: center;
-      gap: 9px;
+      gap: 10px;
       min-width: 0;
     }
     .brand-icon {
-      width: 22px;
-      height: 22px;
-      border-radius: 7px;
-      background: var(--clay);
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      background: #fff;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      color: #faf5ea;
+      color: #0b0f14;
       flex-shrink: 0;
     }
     .top-bar-title {
-      font-family: 'Fraunces', Georgia, serif;
-      font-size: 15px;
-      font-weight: 600;
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: -0.1px;
       color: var(--ink);
       white-space: nowrap;
     }
 
-    /* Status indicator — calm static dot, sage when live */
     .status-dot {
-      width: 9px;
-      height: 9px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
-      background: #c9bda9;
+      background: var(--muted);
       flex-shrink: 0;
     }
     .status-dot.live {
-      background: var(--sage);
+      background: var(--live);
+      box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18);
     }
     .status-text {
       font-size: 12px;
@@ -128,7 +99,7 @@
       text-overflow: ellipsis;
     }
     .status-text.live {
-      color: var(--sage-deep);
+      color: var(--ink);
     }
 
     .top-bar-right {
@@ -139,23 +110,23 @@
       flex-shrink: 0;
     }
     .btn-stop {
-      background: var(--clay);
+      background: var(--rec);
       border: none;
-      color: #fdf8ef;
-      font-family: 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
+      color: #fff;
+      font-family: inherit;
       font-size: 12px;
       font-weight: 700;
       padding: 7px 14px;
-      border-radius: 10px;
+      border-radius: 9999px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      transition: background 0.15s ease-out;
+      transition: filter 0.15s ease-out;
       -webkit-app-region: no-drag;
     }
     .btn-stop:hover {
-      background: var(--clay-deep);
+      filter: brightness(1.1);
     }
     .btn-close {
       width: 30px;
@@ -172,38 +143,38 @@
       justify-content: center;
     }
     .btn-close:hover {
-      background: var(--clay-soft);
-      color: var(--clay-ink);
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
     }
 
     /* ── Video area ───────────────────────────────────────────── */
     .video-area {
       flex: 1;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--linen);
+      align-items: stretch;
+      justify-content: stretch;
+      background: #000;
       position: relative;
       overflow: hidden;
-      padding: 18px;
+      padding: 0;
     }
     .video-frame {
       width: 100%;
       height: 100%;
-      border-radius: 18px;
-      border: 1px solid var(--sand);
-      background: var(--card);
-      box-shadow: 0 10px 30px rgba(122, 90, 58, 0.1), 0 2px 6px rgba(122, 90, 58, 0.08);
+      border-radius: 0;
+      border: none;
+      background: #000;
+      box-shadow: none;
       display: flex;
-      padding: 8px;
+      padding: 0;
       position: relative;
       overflow: hidden;
     }
     .video-inner {
       flex: 1;
-      border-radius: 12px;
+      border-radius: 0;
       overflow: hidden;
-      background: #241d16;
+      background: #000;
       position: relative;
       display: flex;
       align-items: center;
@@ -214,13 +185,13 @@
       height: 100%;
       object-fit: contain;
       display: none;
-      background: #241d16;
+      background: #000;
     }
     #cam-video.active {
       display: block;
     }
 
-    /* Waiting state overlay */
+    /* Waiting state */
     .waiting-overlay {
       position: absolute;
       inset: 0;
@@ -229,7 +200,7 @@
       align-items: center;
       justify-content: center;
       gap: 14px;
-      background: var(--card);
+      background: #0b0f14;
       transition: opacity 0.25s ease-out;
     }
     .waiting-overlay.hidden {
@@ -237,10 +208,10 @@
       pointer-events: none;
     }
     .waiting-spinner {
-      width: 34px;
-      height: 34px;
-      border: 3px solid var(--sand);
-      border-top-color: var(--clay);
+      width: 36px;
+      height: 36px;
+      border: 3px solid #1e293b;
+      border-top-color: #fff;
       border-radius: 50%;
       animation: spin 0.9s linear infinite;
     }
@@ -249,13 +220,13 @@
     }
     .waiting-label {
       font-size: 14px;
-      font-weight: 600;
+      font-weight: 650;
       color: var(--ink);
       text-align: center;
-      line-height: 1.55;
+      line-height: 1.6;
     }
     .waiting-sub {
-      font-size: 12px;
+      font-size: 12.5px;
       font-weight: 400;
       color: var(--ink-soft);
     }
@@ -269,7 +240,7 @@
       align-items: center;
       justify-content: center;
       gap: 12px;
-      background: var(--card);
+      background: #0b0f14;
     }
     .ended-overlay.visible {
       display: flex;
@@ -278,34 +249,35 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 52px;
-      height: 52px;
+      width: 54px;
+      height: 54px;
       border-radius: 18px;
-      background: #ede4d2;
+      background: #1e293b;
       color: var(--ink-soft);
     }
     .ended-label {
-      font-size: 14px;
+      font-size: 13.5px;
       font-weight: 600;
       color: var(--ink-soft);
     }
 
-    /* LIVE badge — calm clay pill */
+    /* LIVE badge */
     .live-badge {
       position: absolute;
-      top: 12px;
-      left: 12px;
-      background: var(--clay);
-      color: #fdf8ef;
+      top: 14px;
+      left: 14px;
+      background: var(--rec);
+      color: #fff;
       font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 1.2px;
-      padding: 4px 11px;
+      font-weight: 800;
+      letter-spacing: 1.1px;
+      padding: 5px 12px;
       border-radius: 9999px;
       display: none;
       align-items: center;
-      gap: 6px;
+      gap: 7px;
       z-index: 2;
+      box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);
     }
     .live-badge.visible {
       display: inline-flex;
@@ -315,8 +287,10 @@
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: #fdf8ef;
+      background: #fff;
+      animation: blink 1.2s ease-in-out infinite;
     }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
   </style>
 </head>
 
