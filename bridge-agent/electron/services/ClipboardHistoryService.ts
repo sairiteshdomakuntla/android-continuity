@@ -73,8 +73,9 @@ class ClipboardHistoryServiceClass {
     timestamp?: string,
     id?: string
   ): ClipboardHistoryItem | null {
-    // If top item has exact same image path and origin, don't duplicate
-    if (this._items.length > 0 && this._items[0].kind === 'image' && this._items[0].imagePath === imagePath && this._items[0].origin === origin) {
+    // If top item has exact same image path, don't duplicate (regardless of
+    // origin — an Android screenshot received and re-detected shouldn't create two entries)
+    if (this._items.length > 0 && this._items[0].kind === 'image' && this._items[0].imagePath === imagePath) {
       return null
     }
 

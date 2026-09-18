@@ -141,11 +141,12 @@ class ClipboardHistoryService {
   }) async {
     final currentList = List<ClipboardHistoryItem>.from(items.value);
 
-    // Suppress consecutive identical image item at the top
+    // Suppress consecutive identical image item at the top (regardless of
+    // origin — the same screenshot sent from Android and echoed back from
+    // Windows should not produce two entries).
     if (currentList.isNotEmpty &&
         currentList.first.kind == 'image' &&
-        currentList.first.imagePath == imagePath &&
-        currentList.first.origin == origin) {
+        currentList.first.imagePath == imagePath) {
       return;
     }
 

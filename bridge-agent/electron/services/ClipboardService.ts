@@ -333,8 +333,6 @@ class ClipboardServiceClass {
     }
 
     this._dedupe.add(info.transferId)
-    this._lastImageHash = info.sha256
-    this._lastImageSentHash = info.sha256
     this._lastRawText = ''
     this._lastNormalizedText = ''
     this._lastNormalizedSentText = ''
@@ -342,6 +340,23 @@ class ClipboardServiceClass {
 
     // Write directly to Windows clipboard so user can immediately Ctrl+V into Paint, Word, etc.
     clipboard.writeImage(info.img)
+
+    // IMPORTANT: Compute _lastImageHash from the clipboard readback using
+    // the same method _poll() uses (clipboard.readImage().toPNG()), NOT from
+    // info.sha256. The raw file SHA-256 differs from what Electron's PNG
+    // encoder produces, so the poll would detect a "new" image and echo it
+    // back to Android.
+    const readback = clipboard.readImage()
+    if (!readback.isEmpty()) {
+      const pngBuf = readback.toPNG()
+      const readbackHash = crypto.createHash('sha256').update(pngBuf).digest('hex')
+      this._lastImageHash = readbackHash
+      this._lastImageSentHash = readbackHash
+    } else {
+      // Fallback: use the file hash (better than nothing)
+      this._lastImageHash = info.sha256
+      this._lastImageSentHash = info.sha256
+    }
 
     const thumbnail = info.img.resize({ width: 160 }).toDataURL()
     ClipboardHistoryService.addImageEntry(thumbnail, info.path, 'android', new Date().toISOString(), info.transferId)

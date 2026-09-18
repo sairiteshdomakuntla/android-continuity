@@ -58,6 +58,10 @@ class ClipboardService with WidgetsBindingObserver {
   /// the first await so the second call sees it on the same event loop.
   bool _screenshotCheckInFlight = false;
 
+  /// Full-method mutex: prevents concurrent syncNow calls from racing past
+  /// hash/ID guards. Multiple resume events can fire in rapid succession.
+  bool _syncInFlight = false;
+
   static const _storage = FlutterSecureStorage();
   static const _keyLastScreenshotId = 'screenshot_last_id';
 
@@ -148,20 +152,17 @@ class ClipboardService with WidgetsBindingObserver {
       }
     });
 
-    // Listen for incoming image clipboard notifications forwarded from background service isolate
+    // Listen for incoming image clipboard notifications forwarded from background service isolate.
+    // The background isolate's FileTransferService already persisted the entry
+    // to storage, so we only reload (to pick up the new item) and mark the
+    // image as synced to prevent resume-sync from echoing it back.
     service.on('clipboard_image_received').listen((event) async {
       if (event == null) return;
       final imagePath = event['imagePath'] as String?;
-      final origin = event['origin'] as String? ?? 'windows';
-      final transferId = event['transferId'] as String?;
 
       if (imagePath != null && imagePath.isNotEmpty) {
         markImageAsSynced(imagePath);
-        await ClipboardHistoryService.instance.addImageEntry(
-          imagePath: imagePath,
-          origin: origin,
-          id: transferId,
-        );
+        await ClipboardHistoryService.instance.load();
       }
     });
 
@@ -202,6 +203,19 @@ class ClipboardService with WidgetsBindingObserver {
   /// Screenshots are checked first: they never reach the clipboard, so the
   /// latest unseen MediaStore screenshot is pushed as a clipboard image.
   Future<SyncDirectionResult> syncNow({bool force = false}) async {
+    if (_syncInFlight) {
+      debugPrint('[ClipboardService] syncNow already in flight — skipping concurrent call');
+      return SyncDirectionResult.upToDate;
+    }
+    _syncInFlight = true;
+    try {
+      return await _syncNowInner(force: force);
+    } finally {
+      _syncInFlight = false;
+    }
+  }
+
+  Future<SyncDirectionResult> _syncNowInner({bool force = false}) async {
     // 0. New screenshot? (silent — only runs when media permission is granted)
     if (_screenshotCheckInFlight) {
       debugPrint('[ClipboardService] Screenshot check already in flight — skipping duplicate');
